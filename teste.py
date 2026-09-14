@@ -1,5 +1,5 @@
 # ==============================================================================
-# SISTEMA DE CADASTRO RÁPIDO DE DADOS
+# SISTEMA DE CADASTRO RÁPIDO E CONTROLE DE PRESTADORES
 # Autor: Raphael Santos
 # Propriedade Intelectual e Desenvolvimento: Raphael Santos
 # Licença: Uso Exclusivo Autorizado - Proibida Replicação ou Alteração sem Autorização
@@ -11,7 +11,7 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 
 # Configuração visual do tema e da página
-st.set_page_config(page_title="Cadastro Rápido", layout="wide")
+st.set_page_config(page_title="Sistema de Cadastro e Gestão", layout="wide")
 
 # --- CARREGAMENTO SEGURO DE USUÁRIOS ---
 try:
@@ -107,7 +107,7 @@ st.sidebar.divider()
 # Seleção de Abas
 aba_selecionada = st.sidebar.radio(
     "Navegação",
-    ["Cadastro Rápido", "Outra Planilha (Em Breve)"],
+    ["Cadastro Rápido", "Controle de Prestadores"],
 )
 
 nivel = st.session_state.get("nivel_acesso")
@@ -116,7 +116,6 @@ nivel = st.session_state.get("nivel_acesso")
 if aba_selecionada == "Cadastro Rápido":
     st.title("Cadastro Rápido de Dados")
 
-    # --- FORMULÁRIO (Exibido apenas para Editor e Admin) ---
     if nivel in ["Editor", "Admin"]:
         with st.form("form_cadastro", clear_on_submit=True):
             campo1 = st.text_input("Loja")
@@ -132,17 +131,13 @@ if aba_selecionada == "Cadastro Rápido":
             campos = [campo1, campo2, campo3, campo4, campo5, campo6]
             if any(c.strip() == "" for c in campos):
                 st.error("Por favor, preencha todos os campos antes de salvar!")
-
             elif not campo4.strip().isdigit():
                 st.error("O campo 'Telefone' deve conter apenas números inteiros!")
-
             elif len(campo4.strip()) != 11:
                 st.error("O telefone deve conter exatamente 11 dígitos (ex: DDD + Número)!")
-
             else:
                 try:
-                    # Carrega os dados existentes
-                    df_existente = conn.read(spreadsheet=url_planilha, ttl=0)
+                    df_existente = conn.read(spreadsheet=url_planilha, worksheet="Cadastro Rápido", ttl=0)
 
                     novo_dado = pd.DataFrame(
                         [
@@ -158,24 +153,21 @@ if aba_selecionada == "Cadastro Rápido":
                         ]
                     )
 
-                    # Consolida e atualiza a planilha
                     df_atualizado = pd.concat([df_existente, novo_dado], ignore_index=True)
-                    conn.update(spreadsheet=url_planilha, data=df_atualizado)
+                    conn.update(spreadsheet=url_planilha, worksheet="Cadastro Rápido", data=df_atualizado)
 
                     st.success("Dados salvos com sucesso no Google Sheets!")
                     st.rerun()
                 except Exception as err:
                     st.error(f"Erro ao salvar na planilha: {err}")
-
     else:
         st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
 
-    # --- VISUALIZAÇÃO E EXCLUSÃO ---
     st.divider()
-    st.subheader("Visualização do Banco de Dados")
+    st.subheader("Visualização do Banco de Dados - Cadastros")
 
     try:
-        df = conn.read(spreadsheet=url_planilha, ttl=0)
+        df = conn.read(spreadsheet=url_planilha, worksheet="Cadastro Rápido", ttl=0)
         
         if nivel == "Admin" and not df.empty:
             st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
@@ -195,16 +187,102 @@ if aba_selecionada == "Cadastro Rápido":
             if not linhas_para_remover.empty:
                 if st.button("Confirmar Exclusão dos Selecionados"):
                     df_atualizado = tabela_editavel[tabela_editavel["Excluir"] == False].drop(columns=["Excluir"])
-                    conn.update(spreadsheet=url_planilha, data=df_atualizado)
+                    conn.update(spreadsheet=url_planilha, worksheet="Cadastro Rápido", data=df_atualizado)
                     st.success("Registro(s) removido(s) com sucesso!")
                     st.rerun()
         else:
             st.dataframe(df, use_container_width=True)
 
     except Exception as e:
-        st.info("Nenhum dado cadastrado ou erro ao conectar com o Google Sheets.")
+        st.info("Nenhum dado cadastrado ou erro ao conectar com a guia 'Cadastro Rápido'.")
 
-# --- ABA 2: ESPAÇO RESERVADO PARA EXPANSÃO FUTURA ---
-elif aba_selecionada == "Outra Planilha (Em Breve)":
-    st.title("Nova Aba em Desenvolvimento")
-    st.info("Este espaço está reservado para a inclusão de novas planilhas e relatórios.")
+# --- ABA 2: CONTROLE DE PRESTADORES ---
+elif aba_selecionada == "Controle de Prestadores":
+    st.title("Controle de Prestadores de Serviço")
+
+    if nivel in ["Editor", "Admin"]:
+        with st.form("form_prestadores", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                p_regiao = st.text_input("Região")
+                p_nome = st.text_input("Prestador de Serviço")
+                p_servicos = st.text_input("Serviços")
+                p_tel = st.text_input("Telefone (Apenas números, 11 dígitos)")
+
+            with col2:
+                p_email = st.text_input("E-mail")
+                p_avaliacao = st.slider("Avaliação de 0 a 5", min_value=0, max_value=5, value=5)
+                p_prazo = st.text_input("Prazo pag.")
+                p_nf = st.text_input("NF.")
+
+            btn_salvar_p = st.form_submit_button("Cadastrar Prestador")
+
+        if btn_salvar_p:
+            campos_obrigatorios = [p_regiao, p_nome, p_servicos, p_tel, p_email, p_prazo, p_nf]
+            if any(c.strip() == "" for c in campos_obrigatorios):
+                st.error("Por favor, preencha todos os campos do formulário!")
+            elif not p_tel.strip().isdigit() or len(p_tel.strip()) != 11:
+                st.error("O campo 'Telefone' deve conter exatamente 11 dígitos numéricos!")
+            else:
+                try:
+                    df_prestadores = conn.read(spreadsheet=url_planilha, worksheet="Controle de Prestadores", ttl=0)
+
+                    novo_prestador = pd.DataFrame(
+                        [
+                            {
+                                "Região": p_regiao,
+                                "Prestador de Serviço": p_nome,
+                                "Serviços": p_servicos,
+                                "Telefone": str(p_tel),
+                                "E-mail": p_email,
+                                "Avaliação de 0 a 5": int(p_avaliacao),
+                                "Prazo pag.": p_prazo,
+                                "NF.": p_nf,
+                                "Cadastrado Por": st.session_state["usuario_logado"],
+                            }
+                        ]
+                    )
+
+                    df_p_atualizado = pd.concat([df_prestadores, novo_prestador], ignore_index=True)
+                    conn.update(spreadsheet=url_planilha, worksheet="Controle de Prestadores", data=df_p_atualizado)
+
+                    st.success("Prestador cadastrado com sucesso!")
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"Erro ao salvar na guia 'Controle de Prestadores': {err}")
+    else:
+        st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
+
+    st.divider()
+    st.subheader("Visualização do Banco de Dados - Prestadores")
+
+    try:
+        df_p = conn.read(spreadsheet=url_planilha, worksheet="Controle de Prestadores", ttl=0)
+        
+        if nivel == "Admin" and not df_p.empty:
+            st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
+            
+            df_p_editor = df_p.copy()
+            df_p_editor.insert(0, "Excluir", False)
+            
+            tabela_p_editavel = st.data_editor(
+                df_p_editor,
+                hide_index=True,
+                use_container_width=True,
+                num_rows="fixed"
+            )
+            
+            linhas_p_remover = tabela_p_editavel[tabela_p_editavel["Excluir"] == True]
+            
+            if not linhas_p_remover.empty:
+                if st.button("Confirmar Exclusão dos Prestadores Selecionados"):
+                    df_p_atualizado = tabela_p_editavel[tabela_p_editavel["Excluir"] == False].drop(columns=["Excluir"])
+                    conn.update(spreadsheet=url_planilha, worksheet="Controle de Prestadores", data=df_p_atualizado)
+                    st.success("Prestador(es) removido(s) com sucesso!")
+                    st.rerun()
+        else:
+            st.dataframe(df_p, use_container_width=True)
+
+    except Exception as e:
+        st.info("Nenhum prestador cadastrado ou a guia 'Controle de Prestadores' ainda não foi criada no Google Sheets.")
