@@ -47,7 +47,7 @@ st.markdown(
         font-weight: normal !important;
     }
 
-    /* BOTÕES E FORMULÁRIOS */
+    /* BOTÕES E FORMULÁRIOS PADRÃO */
     [data-testid="stForm"] { border: none !important; padding: 0 !important; }
     
     div.stButton > button, div[data-testid="stFormSubmitButton"] > button { 
@@ -63,27 +63,22 @@ st.markdown(
         color: #FFFFFF !important; 
     }
 
-    /* BOTÃO SECRETO (Completamente Invisível) */
-    div.secret-btn-container > button {
+    /* BOTÃO SECRETO (Completamente Invisível e Mesclado) */
+    [data-testid="stSidebar"] div.secret-btn-container button,
+    [data-testid="stSidebar"] div.secret-btn-container button:hover,
+    [data-testid="stSidebar"] div.secret-btn-container button:focus,
+    [data-testid="stSidebar"] div.secret-btn-container button:active {
         background-color: #262730 !important;
-        color: #262730 !important; /* Texto da mesma cor do fundo */
-        border: none !important;
-        outline: none !important;
-        padding: 0px !important;
-        height: 20px !important;
-        width: 100% !important;
-        box-shadow: none !important;
-        cursor: default !important; /* Desativa a "mãozinha" do clique ao passar o mouse */
-    }
-    div.secret-btn-container > button:hover,
-    div.secret-btn-container > button:focus,
-    div.secret-btn-container > button:active {
-        background-color: #262730 !important;
+        background: #262730 !important;
         color: #262730 !important;
         border: none !important;
         outline: none !important;
         box-shadow: none !important;
+        height: 24px !important;
+        width: 100% !important;
         cursor: default !important;
+        padding: 0 !important;
+        min-height: 0px !important;
     }
 
     /* BOTÃO RADIO (Navegação no Menu Lateral - Seleção em Amarelo) */
@@ -234,9 +229,9 @@ if st.session_state["aba_secreta_desbloqueada"]:
 
 aba_selecionada = st.sidebar.radio("Navegação", opcoes_menu)
 
-# BOTÃO INVISÍVEL NA SIDEBAR
+# BOTÃO INVISÍVEL NA SIDEBAR (MESCLADO COM O BACKGROUND)
 st.sidebar.markdown('<div class="secret-btn-container">', unsafe_allow_html=True)
-if st.sidebar.button(".", key="btn_secreto"):
+if st.sidebar.button("‎", key="btn_secreto"):
     st.session_state["aba_secreta_desbloqueada"] = not st.session_state["aba_secreta_desbloqueada"]
     st.rerun()
 st.sidebar.markdown('</div>', unsafe_allow_html=True)
