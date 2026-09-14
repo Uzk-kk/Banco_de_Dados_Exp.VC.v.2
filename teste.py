@@ -18,9 +18,15 @@ st.set_page_config(page_title="Sistema de Cadastro e Gestão", layout="wide")
 st.markdown(
     """
     <style>
-    /* Fundo principal e sidebar */
-    .stApp, [data-testid="stSidebar"] { 
+    /* Fundo principal da aplicação */
+    .stApp { 
         background-color: #341539 !important; 
+    }
+
+    /* BARRA LATERAL (SIDEBAR) - Cor cinza igual às caixas de texto */
+    [data-testid="stSidebar"] {
+        background-color: #262730 !important;
+        border-right: 1px solid rgba(255, 216, 15, 0.2) !important;
     }
 
     /* Títulos e Rótulos principais */
@@ -29,17 +35,18 @@ st.markdown(
         font-weight: bold !important; 
     }
 
-    /* Inputs de Texto */
+    /* CAIXAS DE INSERÇÃO DE TEXTO (INPUTS) - Fundo Cinza Escuro */
     div[data-baseweb="input"] > div { 
-        background-color: #FFD80F !important; 
+        background-color: #262730 !important; 
+        border: 1px solid rgba(255, 216, 15, 0.3) !important;
         border-radius: 8px !important; 
     }
     div[data-baseweb="input"] input { 
-        color: #000000 !important; 
-        font-weight: bold !important;
+        color: #FFFFFF !important; 
+        font-weight: normal !important;
     }
 
-    /* Forms e Botões */
+    /* BOTÕES E FORMULÁRIOS */
     [data-testid="stForm"] { border: none !important; padding: 0 !important; }
     
     div.stButton > button, div[data-testid="stFormSubmitButton"] > button { 
@@ -55,40 +62,55 @@ st.markdown(
         color: #FFFFFF !important; 
     }
 
-    /* Botão Radio (Menu Lateral) */
+    /* BOTÃO RADIO (Navegação no Menu Lateral - Seleção em Amarelo) */
     div[data-testid="stRadioButton"] label p {
         color: #FFD80F !important;
     }
-    div[data-testid="stRadioButton"] div[role="radiogroup"] [aria-checked="true"] {
+
+    /* Radio Ativo - Círculo Externo e Preenchimento */
+    div[data-testid="stRadioButton"] [aria-checked="true"] div:first-child,
+    div[data-testid="stRadioButton"] [data-baseweb="radio"] input:checked + div {
         border-color: #FFD80F !important;
         background-color: #FFD80F !important;
     }
-    div[data-testid="stRadioButton"] div[role="radiogroup"] [aria-checked="true"] > div {
-        background-color: #341539 !important;
+
+    /* Radio Ativo - Ponto Central Interno */
+    div[data-testid="stRadioButton"] [aria-checked="true"] div:first-child > div,
+    div[data-testid="stRadioButton"] [data-baseweb="radio"] input:checked + div > div {
+        background-color: #262730 !important;
     }
-    div[data-testid="stRadioButton"] div[role="radiogroup"] [aria-checked="false"] {
+
+    /* Radio Inativo - Apenas Borda Amarela */
+    div[data-testid="stRadioButton"] [aria-checked="false"] div:first-child,
+    div[data-testid="stRadioButton"] [data-baseweb="radio"] input:not(:checked) + div {
         border-color: #FFD80F !important;
         background-color: transparent !important;
     }
 
-    /* Slider de Avaliação */
-    div[data-baseweb="slider"] [role="slider"] {
+    /* SLIDER DE AVALIAÇÃO (Barra Amarela) */
+    /* Linha Ativa do Slider */
+    div[data-testid="stSlider"] [data-baseweb="slider"] div[role="slider"] ~ div,
+    div[data-testid="stSlider"] [data-baseweb="slider"] div[style*="background-color"],
+    div[data-testid="stSlider"] [data-baseweb="slider"] > div > div > div {
+        background: #FFD80F !important;
+        background-color: #FFD80F !important;
+    }
+
+    /* Puxador / Bolinha do Slider */
+    div[data-testid="stSlider"] [role="slider"] {
         background-color: #FFD80F !important;
         border-color: #FFD80F !important;
-        box-shadow: 0px 0px 5px rgba(255, 216, 15, 0.8) !important;
+        box-shadow: 0px 0px 6px rgba(255, 216, 15, 0.9) !important;
     }
-    div[data-baseweb="slider"] > div > div > div:nth-child(2) {
-        background-color: #FFD80F !important;
-    }
-    div[data-baseweb="slider"] > div > div {
-        background-color: rgba(255, 216, 15, 0.3) !important;
-    }
+
+    /* Rótulos e Números do Slider */
     div[data-testid="stSlider"] [data-testid="stTickBar"] div,
-    div[data-testid="stSlider"] div {
+    div[data-testid="stSlider"] div,
+    div[data-testid="stSlider"] p {
         color: #FFD80F !important;
     }
 
-    /* Rodapé fixo */
+    /* Rodapé fixo de autoria */
     .footer-autoria {
         position: fixed;
         left: 0;
