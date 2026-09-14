@@ -82,52 +82,57 @@ st.markdown(
     }
 
     /* ==================================================================
-       MENU LATERAL PERSONALIZADO EM BLOCOS/BOTÕES ROXOS
+       MENU LATERAL PERSONALIZADO (RADIO TRANSFORMATION)
        ================================================================== */
-    div[data-testid="stSidebar"] div[data-testid="stRadioButton"] > div[role="radiogroup"] {
-        gap: 10px !important;
+    /* Espaçamento entre as opções do menu */
+    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] {
+        gap: 12px !important;
+        width: 100% !important;
     }
 
-    /* Esconde a bolinha do Radio Button */
-    div[data-testid="stSidebar"] div[data-testid="stRadioButton"] div[data-baseweb="radio"] > div:first-child {
+    /* Oculta a bolinha original do Radio Button */
+    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label div:first-child {
         display: none !important;
     }
 
-    /* Formatação dos botões no menu */
-    div[data-testid="stSidebar"] div[data-testid="stRadioButton"] label {
-        background-color: #341539 !important; /* Roxo principal */
-        border: 1px solid rgba(255, 216, 15, 0.3) !important;
+    /* Estilização da opção como um Botão Roxo Largo */
+    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label {
+        background-color: #341539 !important; /* Cor roxa de fundo do app */
+        border: 1px solid rgba(255, 216, 15, 0.4) !important;
         border-radius: 8px !important;
         padding: 12px 16px !important;
         width: 100% !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
         cursor: pointer !important;
-        transition: all 0.3s ease !important;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        transition: all 0.2s ease-in-out !important;
+        margin: 0 !important;
     }
 
     /* Texto amarelo dos botões */
-    div[data-testid="stSidebar"] div[data-testid="stRadioButton"] label p {
+    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] p,
+    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label span {
         color: #FFD80F !important;
-        font-weight: bold !important;
         font-size: 13px !important;
+        font-weight: bold !important;
         text-transform: uppercase !important;
         text-align: center !important;
         margin: 0 !important;
     }
 
     /* Efeito Hover ao passar o mouse */
-    div[data-testid="stSidebar"] div[data-testid="stRadioButton"] label:hover {
+    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label:hover {
         background-color: #4A1E52 !important;
         border-color: #FFD80F !important;
+        box-shadow: 0px 0px 8px rgba(255, 216, 15, 0.4) !important;
     }
 
     /* Item Ativo/Selecionado */
-    div[data-testid="stSidebar"] div[data-testid="stRadioButton"] [aria-checked="true"] {
+    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) {
         background-color: #341539 !important;
         border: 2px solid #FFD80F !important;
-        box-shadow: 0px 0px 8px rgba(255, 216, 15, 0.4) !important;
+        box-shadow: 0px 0px 12px rgba(255, 216, 15, 0.7) !important;
     }
 
     /* SLIDER DE AVALIAÇÃO (Barra Amarela) */
