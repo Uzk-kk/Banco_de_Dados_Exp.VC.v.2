@@ -81,29 +81,53 @@ st.markdown(
         border: none !important;
     }
 
-    /* BOTÃO RADIO (Navegação no Menu Lateral - Seleção em Amarelo) */
-    div[data-testid="stRadioButton"] label p {
+    /* ==================================================================
+       MENU LATERAL PERSONALIZADO EM BLOCOS/BOTÕES ROXOS
+       ================================================================== */
+    div[data-testid="stSidebar"] div[data-testid="stRadioButton"] > div[role="radiogroup"] {
+        gap: 10px !important;
+    }
+
+    /* Esconde a bolinha do Radio Button */
+    div[data-testid="stSidebar"] div[data-testid="stRadioButton"] div[data-baseweb="radio"] > div:first-child {
+        display: none !important;
+    }
+
+    /* Formatação dos botões no menu */
+    div[data-testid="stSidebar"] div[data-testid="stRadioButton"] label {
+        background-color: #341539 !important; /* Roxo principal */
+        border: 1px solid rgba(255, 216, 15, 0.3) !important;
+        border-radius: 8px !important;
+        padding: 12px 16px !important;
+        width: 100% !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        cursor: pointer !important;
+        transition: all 0.3s ease !important;
+    }
+
+    /* Texto amarelo dos botões */
+    div[data-testid="stSidebar"] div[data-testid="stRadioButton"] label p {
         color: #FFD80F !important;
+        font-weight: bold !important;
+        font-size: 13px !important;
+        text-transform: uppercase !important;
+        text-align: center !important;
+        margin: 0 !important;
     }
 
-    /* Radio Ativo - Círculo Externo e Preenchimento */
-    div[data-testid="stRadioButton"] [aria-checked="true"] div:first-child,
-    div[data-testid="stRadioButton"] [data-baseweb="radio"] input:checked + div {
+    /* Efeito Hover ao passar o mouse */
+    div[data-testid="stSidebar"] div[data-testid="stRadioButton"] label:hover {
+        background-color: #4A1E52 !important;
         border-color: #FFD80F !important;
-        background-color: #FFD80F !important;
     }
 
-    /* Radio Ativo - Ponto Central Interno */
-    div[data-testid="stRadioButton"] [aria-checked="true"] div:first-child > div,
-    div[data-testid="stRadioButton"] [data-baseweb="radio"] input:checked + div > div {
-        background-color: #262730 !important;
-    }
-
-    /* Radio Inativo - Apenas Borda Amarela */
-    div[data-testid="stRadioButton"] [aria-checked="false"] div:first-child,
-    div[data-testid="stRadioButton"] [data-baseweb="radio"] input:not(:checked) + div {
-        border-color: #FFD80F !important;
-        background-color: transparent !important;
+    /* Item Ativo/Selecionado */
+    div[data-testid="stSidebar"] div[data-testid="stRadioButton"] [aria-checked="true"] {
+        background-color: #341539 !important;
+        border: 2px solid #FFD80F !important;
+        box-shadow: 0px 0px 8px rgba(255, 216, 15, 0.4) !important;
     }
 
     /* SLIDER DE AVALIAÇÃO (Barra Amarela) */
