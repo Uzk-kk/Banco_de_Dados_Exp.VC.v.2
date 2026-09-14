@@ -1,5 +1,5 @@
 # ==============================================================================
-# SISTEMA DE CADASTRO RÁPIDO, PRESTADORES E SUBLOCATÁRIOS
+# SISTEMA DE CADASTRO RÁPIDO, PRESTADORES, SUBLOCATÁRIOS E GERENTES DE LOJA
 # Autor: Raphael Santos
 # Propriedade Intelectual e Desenvolvimento: Raphael Santos
 # Licença: Uso Exclusivo Autorizado - Proibida Replicação ou Alteração sem Autorização
@@ -108,7 +108,7 @@ st.sidebar.divider()
 # Seleção de Abas
 aba_selecionada = st.sidebar.radio(
     "Navegação",
-    ["Cadastro Rápido", "Controle de Prestadores", "Sublocatários"],
+    ["Cadastro Rápido", "Controle de Prestadores", "Sublocatários", "Controle Gerentes de Loja"],
 )
 
 nivel = st.session_state.get("nivel_acesso")
@@ -402,3 +402,89 @@ elif aba_selecionada == "Sublocatários":
 
     except Exception as e:
         st.info("Nenhum sublocatário cadastrado ou a guia 'Sublocatários' ainda não foi criada no Google Sheets.")
+
+# --- ABA 4: CONTROLE GERENTES DE LOJA ---
+elif aba_selecionada == "Controle Gerentes de Loja":
+    st.title("Controle Gerentes de Loja")
+
+    if nivel in ["Editor", "Admin"]:
+        with st.form("form_gerentes", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+
+            with col1:
+                g_loja = st.text_input("Loja")
+                g_nome = st.text_input("Nome")
+                g_tel = st.text_input("Telefone (Apenas números, 11 dígitos)")
+
+            with col2:
+                g_email = st.text_input("E-mail")
+                g_cargo = st.text_input("Cargo")
+
+            btn_salvar_g = st.form_submit_button("Cadastrar Gerente")
+
+        if btn_salvar_g:
+            campos_gerente = [g_loja, g_nome, g_tel, g_email, g_cargo]
+
+            if any(c.strip() == "" for c in campos_gerente):
+                st.error("Por favor, preencha todos os campos do formulário!")
+            elif not g_tel.strip().isdigit() or len(g_tel.strip()) != 11:
+                st.error("O campo 'Telefone' deve conter exatamente 11 dígitos numéricos!")
+            else:
+                try:
+                    df_gerentes = conn.read(spreadsheet=url_planilha, worksheet="Controle Gerentes de Loja", ttl=0)
+
+                    novo_gerente = pd.DataFrame(
+                        [
+                            {
+                                "Loja": g_loja,
+                                "Nome": g_nome,
+                                "Telefone": str(g_tel),
+                                "E-mail": g_email,
+                                "Cargo": g_cargo,
+                                "Cadastrado Por": st.session_state["usuario_logado"],
+                            }
+                        ]
+                    )
+
+                    df_g_atualizado = pd.concat([df_gerentes, novo_gerente], ignore_index=True)
+                    conn.update(spreadsheet=url_planilha, worksheet="Controle Gerentes de Loja", data=df_g_atualizado)
+
+                    st.success("Gerente cadastrado com sucesso!")
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"Erro ao salvar na guia 'Controle Gerentes de Loja': {err}")
+    else:
+        st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
+
+    st.divider()
+    st.subheader("Visualização do Banco de Dados - Gerentes de Loja")
+
+    try:
+        df_g = conn.read(spreadsheet=url_planilha, worksheet="Controle Gerentes de Loja", ttl=0)
+
+        if nivel == "Admin" and not df_g.empty:
+            st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
+
+            df_g_editor = df_g.copy()
+            df_g_editor.insert(0, "Excluir", False)
+
+            tabela_g_editavel = st.data_editor(
+                df_g_editor,
+                hide_index=True,
+                use_container_width=True,
+                num_rows="fixed"
+            )
+
+            linhas_g_remover = tabela_g_editavel[tabela_g_editavel["Excluir"] == True]
+
+            if not linhas_g_remover.empty:
+                if st.button("Confirmar Exclusão dos Gerentes Selecionados"):
+                    df_g_atualizado = tabela_g_editavel[tabela_g_editavel["Excluir"] == False].drop(columns=["Excluir"])
+                    conn.update(spreadsheet=url_planilha, worksheet="Controle Gerentes de Loja", data=df_g_atualizado)
+                    st.success("Gerente(s) removido(s) com sucesso!")
+                    st.rerun()
+        else:
+            st.dataframe(df_g, use_container_width=True)
+
+    except Exception as e:
+        st.info("Nenhum gerente cadastrado ou a guia 'Controle Gerentes de Loja' ainda não foi criada no Google Sheets.")
