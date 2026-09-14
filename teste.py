@@ -6,446 +6,733 @@
 # Data de Criação: Set/2026
 # ==============================================================================
 
+import datetime
+import random
+import pandas as pd
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
-import pandas as pd
-import time
-import random
-import re
 
-# 1. Configuração da página e Estilo Amarelo/Roxo em Tema Escuro
-st.set_page_config(page_title="Sistema de Cadastro e Gestão", layout="wide", page_icon="⚙️")
+# 1. Configuração visual da página (DEVE SER A PRIMEIRA INSTRUÇÃO STREAMLIT)
+st.set_page_config(page_title="Sistema de Cadastro e Gestão", layout="wide")
 
-st.markdown("""
-<style>
-    /* Fundo geral escuro */
-    .stApp {
-        background-color: #121212;
-        color: #FFFFFF;
+# 2. Customização CSS e Rodapé de Autoria
+st.markdown(
+    """
+    <style>
+    /* Fundo principal da aplicação */
+    .stApp { 
+        background-color: #341539 !important; 
+    }
+
+    /* BARRA LATERAL (SIDEBAR) - Cor cinza igual às caixas de texto */
+    [data-testid="stSidebar"] {
+        background-color: #262730 !important;
+        border-right: 1px solid rgba(255, 216, 15, 0.2) !important;
+    }
+
+    /* Títulos e Rótulos principais */
+    h1, h2, h3, label, [data-testid="stMarkdownContainer"] p { 
+        color: #FFD80F !important; 
+        font-weight: bold !important; 
+    }
+
+    /* CAIXAS DE INSERÇÃO DE TEXTO (INPUTS) - Fundo Cinza Escuro */
+    div[data-baseweb="input"] > div { 
+        background-color: #262730 !important; 
+        border: 1px solid rgba(255, 216, 15, 0.3) !important;
+        border-radius: 8px !important; 
+    }
+    div[data-baseweb="input"] input { 
+        color: #FFFFFF !important; 
+        font-weight: normal !important;
+    }
+
+    /* BOTÕES E FORMULÁRIOS PADRÃO */
+    [data-testid="stForm"] { border: none !important; padding: 0 !important; }
+    
+    div.stButton > button, div[data-testid="stFormSubmitButton"] > button { 
+        background-color: #FFD80F !important; 
+        color: #000000 !important; 
+        border-radius: 8px !important; 
+        border: none !important; 
+        padding: 10px 24px !important; 
+        font-weight: bold !important; 
+    }
+    div.stButton > button:hover, div[data-testid="stFormSubmitButton"] > button:hover { 
+        background-color: #7B2CBF !important; 
+        color: #FFFFFF !important; 
     }
     
-    /* Sidebar tema escuro */
-    [data-testid="stSidebar"] {
-        background-color: #1E1E1E;
-        border-right: 1px solid #333333;
-    }
-
-    /* Títulos em Amarelo */
-    h1, h2, h3, h4, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
-        color: #FFD80F !important;
-    }
-
-    /* Botão Principal em Roxo com Texto Amarelo */
-    .stButton>button {
-        background-color: #341539 !important;
-        color: #FFD80F !important;
-        border: 1px solid #FFD80F !important;
-        border-radius: 8px;
-        font-weight: bold;
-        transition: all 0.3s ease;
-    }
-
-    .stButton>button:hover {
-        background-color: #FFD80F !important;
-        color: #341539 !important;
-        border: 1px solid #341539 !important;
-        box-shadow: 0 0 10px rgba(255, 216, 15, 0.5);
-    }
-
-    /* Inputs e Caixas de Texto com Borda Roxa */
-    .stTextInput input, .stSelectbox select, .stTextArea textarea {
-        background-color: #262626 !important;
-        color: #FFFFFF !important;
-        border: 1px solid #341539 !important;
-        border-radius: 6px;
-    }
-
-    .stTextInput input:focus, .stSelectbox select:focus, .stTextArea textarea:focus {
-        border: 1px solid #FFD80F !important;
-        box-shadow: 0 0 5px rgba(255, 216, 15, 0.5);
-    }
-
-    /* Labels dos campos */
-    label {
-        color: #E0E0E0 !important;
-    }
-
-    /* Estilização de Métricas / Cards */
-    [data-testid="stMetricValue"] {
-        color: #FFD80F !important;
-    }
-
-    /* Abas em tema personalizado */
-    .stTabs [data-baseweb="tab-list"] {
-        background-color: #1E1E1E;
-        border-radius: 8px;
-    }
-
-    .stTabs [data-baseweb="tab"] {
-        color: #E0E0E0;
-    }
-
-    .stTabs [aria-selected="true"] {
-        background-color: #341539 !important;
-        color: #FFD80F !important;
-        border-radius: 6px;
-    }
-
-    /* Tabela / Data Editor */
-    [data-testid="stDataFrame"] {
-        background-color: #1E1E1E;
-        border-radius: 8px;
-    }
-
-    /* Botão "Invisível" do Easter Egg */
-    .easter-egg-btn {
+    /* BOTÃO SECRETO INVISÍVEL NA SIDEBAR */
+    div.element-container:has(#secret-btn-marker) + div.element-container button {
         background-color: transparent !important;
-        color: transparent !important;
         border: none !important;
-        height: 15px !important;
-        padding: 0 !important;
-        min-height: 0px !important;
-        cursor: default;
-    }
-    .easter-egg-btn:hover {
-        background-color: transparent !important;
         color: transparent !important;
-        border: none !important;
         box-shadow: none !important;
+        height: 30px !important;
+        width: 100% !important;
+        padding: 0 !important;
+        margin-top: 20px !important;
+        cursor: default !important;
     }
-</style>
-""", unsafe_allow_html=True)
+    div.element-container:has(#secret-btn-marker) + div.element-container button:hover {
+        background-color: transparent !important;
+        color: transparent !important;
+        border: none !important;
+    }
 
-# Helper: Validação de E-mail via RegEx (Melhoria 1)
-def e_email_valido(email: str) -> bool:
-    padrao = r"^[\w\.-]+@[\w\.-]+\.\w+$"
-    return bool(re.match(padrao, email.strip()))
+    /* BOTÃO RADIO (Navegação no Menu Lateral - Seleção em Amarelo) */
+    div[data-testid="stRadioButton"] label p {
+        color: #FFD80F !important;
+    }
 
-# Helper: Formatação e Sanitização do Telefone (Melhoria 3)
-def formatar_telefone(telefone: str) -> str:
-    numeros = re.sub(r"\D", "", str(telefone))
-    if len(numeros) == 11:
-        return f"({numeros[:2]}) {numeros[2:7]}-{numeros[7:]}"
-    return telefone.strip()
+    /* Radio Ativo - Círculo Externo e Preenchimento */
+    div[data-testid="stRadioButton"] [aria-checked="true"] div:first-child,
+    div[data-testid="stRadioButton"] [data-baseweb="radio"] input:checked + div {
+        border-color: #FFD80F !important;
+        background-color: #FFD80F !important;
+    }
 
-# 2. Conexão com Google Sheets
-try:
-    conn = st.connection("gsheets", type=GSheetsConnection)
-except Exception as e:
-    st.error("Erro ao conectar com Google Sheets. Verifique suas configurações de Secrets.")
+    /* Radio Ativo - Ponto Central Interno */
+    div[data-testid="stRadioButton"] [aria-checked="true"] div:first-child > div,
+    div[data-testid="stRadioButton"] [data-baseweb="radio"] input:checked + div > div {
+        background-color: #262730 !important;
+    }
 
-def carregar_dados():
-    try:
-        df = conn.read(ttl=0)
-        df = df.dropna(how="all")
-        # Garante a existência das colunas necessárias
-        colunas_obrigatorias = ['ID', 'NOME', 'SETOR', 'CARGO', 'TELEFONE', 'EMAIL']
-        for col in colunas_obrigatorias:
-            if col not in df.columns:
-                df[col] = ""
-        # Converte ID para int se possível
-        df['ID'] = pd.to_numeric(df['ID'], errors='coerce').fillna(0).astype(int)
-        return df
-    except Exception as e:
-        st.warning("Não foi possível carregar a planilha ou ela está vazia. Criando estrutura inicial.")
-        return pd.DataFrame(columns=['ID', 'NOME', 'SETOR', 'CARGO', 'TELEFONE', 'EMAIL'])
+    /* Radio Inativo - Apenas Borda Amarela */
+    div[data-testid="stRadioButton"] [aria-checked="false"] div:first-child,
+    div[data-testid="stRadioButton"] [data-baseweb="radio"] input:not(:checked) + div {
+        border-color: #FFD80F !important;
+        background-color: transparent !important;
+    }
 
-def salvar_dados(df):
-    try:
-        conn.update(data=df)
-        st.cache_data.clear()
-        return True
-    except Exception as e:
-        st.error(f"Erro ao salvar no Google Sheets: {e}")
-        return False
+    /* SLIDER DE AVALIAÇÃO (Barra Amarela) */
+    div[data-testid="stSlider"] [data-baseweb="slider"] div[role="slider"] ~ div,
+    div[data-testid="stSlider"] [data-baseweb="slider"] div[style*="background-color"],
+    div[data-testid="stSlider"] [data-baseweb="slider"] > div > div > div {
+        background: #FFD80F !important;
+        background-color: #FFD80F !important;
+    }
 
-# Base de Dados Simulada de Usuários e Perfis
+    /* Puxador / Bolinha do Slider */
+    div[data-testid="stSlider"] [role="slider"] {
+        background-color: #FFD80F !important;
+        border-color: #FFD80F !important;
+        box-shadow: 0px 0px 6px rgba(255, 216, 15, 0.9) !important;
+    }
+
+    /* Rótulos e Números do Slider */
+    div[data-testid="stSlider"] [data-testid="stTickBar"] div,
+    div[data-testid="stSlider"] div,
+    div[data-testid="stSlider"] p {
+        color: #FFD80F !important;
+    }
+
+    /* Rodapé fixo de autoria */
+    .footer-autoria {
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        background-color: #1E0A22;
+        color: #FFD80F;
+        text-align: center;
+        padding: 8px 0;
+        font-size: 12px;
+        font-weight: bold;
+        z-index: 9999;
+        border-top: 1px solid #FFD80F;
+    }
+    </style>
+    <div class="footer-autoria">
+        Desenvolvido exclusivamente por Raphael Santos | © Todos os direitos reservados
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# --- CARREGAMENTO SEGURO DE USUÁRIOS ---
 try:
     dados_secrets = st.secrets["USUARIOS"]
     USUARIOS = {k.strip().lower(): v for k, v in dados_secrets.items()}
 except Exception:
-    USUARIOS = {
-        "admin": {"senha": "123", "nivel": "Admin"},
-        "editor": {"senha": "123", "nivel": "Editor"},
-        "leitor": {"senha": "123", "nivel": "Leitor"}
-    }
+    USUARIOS = {"admin": {"senha": "1234", "nivel": "Admin"}}
 
-# Gerenciamento de Sessão com Parâmetros de URL
+# --- PERSISTÊNCIA DE SESSÃO VIA URL ---
 query_params = st.query_params
 
-if 'autenticado' not in st.session_state:
-    if 'user' in query_params:
-        usuario_url = query_params['user'].lower()
-        if usuario_url in USUARIOS:
-            st.session_state['autenticado'] = True
-            st.session_state['usuario'] = usuario_url
-            st.session_state['nivel'] = USUARIOS[usuario_url]['nivel']
-        else:
-            st.session_state['autenticado'] = False
-    else:
-        st.session_state['autenticado'] = False
+if "autenticado" not in st.session_state:
+    st.session_state["autenticado"] = False
 
-if 'easter_egg' not in st.session_state:
-    st.session_state['easter_egg'] = False
+if not st.session_state["autenticado"] and "user" in query_params:
+    usuario_url = query_params["user"].strip().lower()
+    if usuario_url in USUARIOS:
+        st.session_state["autenticado"] = True
+        st.session_state["usuario_logado"] = usuario_url.title()
+        st.session_state["nivel_acesso"] = USUARIOS[usuario_url]["nivel"]
 
-# 3. Tela de Login
-if not st.session_state['autenticado']:
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown("<h1 style='text-align: center;'>🔒 Login do Sistema</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center;'>Digite suas credenciais para continuar</p>", unsafe_allow_html=True)
-        
-        with st.form("login_form"):
-            usuario_input = st.text_input("Usuário").strip().lower()
-            senha_input = st.text_input("Senha", type="password").strip()
-            btn_login = st.form_submit_button("Entrar", use_container_width=True)
-            
-            if btn_login:
-                if usuario_input in USUARIOS and USUARIOS[usuario_input]['senha'] == senha_input:
-                    st.session_state['autenticado'] = True
-                    st.session_state['usuario'] = usuario_input
-                    st.session_state['nivel'] = USUARIOS[usuario_input]['nivel']
-                    st.query_params['user'] = usuario_input
-                    st.success("Login realizado com sucesso!")
-                    time.sleep(0.5)
-                    st.rerun()
-                else:
-                    st.error("Usuário ou senha incorretos.")
+# --- TELA DE LOGIN ---
+if not st.session_state["autenticado"]:
+    st.title("Acesso Restrito")
 
-# 4. Sistema Principal (Pós-Login)
-else:
-    # Sidebar
-    with st.sidebar:
-        st.markdown(f"### 👤 Usuário: `{st.session_state['usuario'].capitalize()}`")
-        st.markdown(f"**Nível de Acesso:** `{st.session_state['nivel']}`")
-        st.divider()
+    with st.form("form_login"):
+        usuario_input = st.text_input("Usuário")
+        senha_input = st.text_input("Senha", type="password")
+        btn_login = st.form_submit_button("Entrar")
 
-        if st.button("🚪 Sair / Logout", use_container_width=True):
-            st.session_state['autenticado'] = False
-            st.session_state['usuario'] = None
-            st.session_state['nivel'] = None
-            st.session_state['easter_egg'] = False
-            st.query_params.clear()
-            st.rerun()
+        if btn_login:
+            usuario_limpo = usuario_input.strip().lower()
+            senha_limpa = senha_input.strip()
 
-        st.markdown("<br><br><br><br><br><br>", unsafe_allow_html=True)
-        
-        # Botão Invisível do Easter Egg
-        if st.button(" ", key="secret_btn", help=None):
-            st.session_state['easter_egg'] = not st.session_state['easter_egg']
-            st.rerun()
-
-    # Aplicação de CSS ao botão invisível
-    st.markdown("""
-        <script>
-            const btn = window.parent.document.querySelector('button[kind="secondary"]:has(div:contains(" "))');
-            if (btn) {
-                btn.classList.add('easter-egg-btn');
-            }
-        </script>
-    """, unsafe_allow_html=True)
-
-    # Conteúdo do Easter Egg
-    if st.session_state['easter_egg']:
-        st.title("🕹️ Modo Secreto: Jogo da Forca!")
-        st.markdown("Você descobriu a página secreta. Divirta-se jogando Forca com palavras do mundo Python/Tech!")
-
-        palavras = ["PYTHON", "STREAMLIT", "DADOS", "DESENVOLVEDOR", "DATABASE", "SISTEMA", "PROGRAMACAO"]
-        
-        if 'palavra_secreta' not in st.session_state or st.button("🔄 Novo Jogo"):
-            st.session_state['palavra_secreta'] = random.choice(palavras)
-            st.session_state['letras_chutadas'] = []
-            st.session_state['tentativas'] = 6
-
-        palavra = st.session_state['palavra_secreta']
-        letras = st.session_state['letras_chutadas']
-        
-        exibicao = "".join([letra if letra in letras else " _ " for letra in palavra])
-        
-        st.markdown(f"### Palavra: `{exibicao}`")
-        st.write(f"❤️ Tentativas restantes: **{st.session_state['tentativas']}**")
-        st.write(f"📝 Letras testadas: {', '.join(letras)}")
-
-        if st.session_state['tentativas'] > 0 and "_" in exibicao:
-            col_input, col_btn = st.columns([2, 1])
-            with col_input:
-                chute = st.text_input("Digite uma letra:", max_chars=1, key="input_forca").upper()
-            with col_btn:
-                st.write("<br>", unsafe_allow_html=True)
-                if st.button("Tentar") and chute:
-                    if chute in letras:
-                        st.warning("Você já tentou essa letra!")
-                    else:
-                        st.session_state['letras_chutadas'].append(chute)
-                        if chute not in palavra:
-                            st.session_state['tentativas'] -= 1
-                        st.rerun()
-
-        if "_" not in exibicao:
-            st.balloons()
-            st.success("🎉 Parabéns! Você venceu o Jogo da Forca!")
-        elif st.session_state['tentativas'] <= 0:
-            st.error(f"💥 Fim de jogo! A palavra era: **{palavra}**")
-
-        st.divider()
-
-    # Aplicação Normal
-    st.title("⚙️ Sistema de Cadastro e Gestão de Colaboradores")
-
-    df_dados = carregar_dados()
-
-    # Criação das Abas com base no Perfil
-    abas = ["📋 Visualizar / Listar", "➕ Novo Cadastro"]
-    if st.session_state['nivel'] in ["Editor", "Admin"]:
-        abas.append("✏️ Editar Registro")
-    if st.session_state['nivel'] == "Admin":
-        abas.append("❌ Excluir Registro")
-
-    guias = st.tabs(abas)
-
-    # --- ABA 1: VISUALIZAR / LISTAR ---
-    with guias[0]:
-        st.subheader("Registros Cadastrados")
-        
-        # Filtros
-        col_f1, col_f2 = st.columns(2)
-        with col_f1:
-            filtro_nome = st.text_input("Filtrar por Nome:")
-        with col_f2:
-            setores_unicos = ["Todos"] + list(df_dados['SETOR'].dropna().unique())
-            filtro_setor = st.selectbox("Filtrar por Setor:", setores_unicos)
-
-        df_filtrado = df_dados.copy()
-        if filtro_nome:
-            df_filtrado = df_filtrado[df_filtrado['NOME'].astype(str).str.contains(filtro_nome, case=False, na=False)]
-        if filtro_setor != "Todos":
-            df_filtrado = df_filtrado[df_filtrado['SETOR'] == filtro_setor]
-
-        st.dataframe(df_filtrado, use_container_width=True)
-        st.caption(f"Total de registros exibidos: {len(df_filtrado)}")
-
-    # --- ABA 2: NOVO CADASTRO ---
-    with guias[1]:
-        st.subheader("Formulário de Novo Cadastro")
-        
-        if st.session_state['nivel'] == "Leitor":
-            st.warning("⚠️ Seu perfil de **Leitor** não permite adicionar novos cadastros.")
-        else:
-            with st.form("form_novo_cadastro", clear_on_submit=True):
-                col_c1, col_c2 = st.columns(2)
-                with col_c1:
-                    novo_nome = st.text_input("Nome Completo *")
-                    novo_setor = st.text_input("Setor *")
-                    novo_cargo = st.text_input("Cargo *")
-                with col_c2:
-                    novo_tel = st.text_input("Telefone (ex: 11999999999) *")
-                    novo_email = st.text_input("E-mail *")
-
-                btn_cadastrar = st.form_submit_button("Salvar Cadastro")
-
-                if btn_cadastrar:
-                    numeros_tel = re.sub(r"\D", "", novo_tel)
-                    
-                    if not (novo_nome and novo_setor and novo_cargo and novo_tel and novo_email):
-                        st.error("Por favor, preencha todos os campos obrigatórios (*).")
-                    elif len(numeros_tel) != 11:
-                        st.error("O telefone deve conter exatamente 11 dígitos (DDD + Número).")
-                    elif not e_email_valido(novo_email):
-                        st.error("Por favor, insira um endereço de e-mail válido (exemplo: usuario@dominio.com).")
-                    else:
-                        proximo_id = 1 if df_dados.empty else int(df_dados['ID'].max()) + 1
-                        tel_formatado = formatar_telefone(novo_tel)
-                        
-                        novo_registro = pd.DataFrame([{
-                            'ID': proximo_id,
-                            'NOME': novo_nome.strip(),
-                            'SETOR': novo_setor.strip(),
-                            'CARGO': novo_cargo.strip(),
-                            'TELEFONE': tel_formatado,
-                            'EMAIL': novo_email.strip()
-                        }])
-
-                        df_atualizado = pd.concat([df_dados, novo_registro], ignore_index=True)
-                        if salvar_dados(df_atualizado):
-                            st.success(f"Cadastro de **{novo_nome}** realizado com sucesso!")
-                            time.sleep(1)
-                            st.rerun()
-
-    # --- ABA 3: EDITAR REGISTRO ---
-    if st.session_state['nivel'] in ["Editor", "Admin"]:
-        with guias[2]:
-            st.subheader("Editar Registro Existente")
-            if df_dados.empty:
-                st.info("Nenhum registro encontrado para editar.")
+            if (
+                usuario_limpo in USUARIOS
+                and USUARIOS[usuario_limpo]["senha"] == senha_limpa
+            ):
+                st.session_state["autenticado"] = True
+                st.session_state["usuario_logado"] = usuario_input.strip().title()
+                st.session_state["nivel_acesso"] = USUARIOS[usuario_limpo]["nivel"]
+                st.query_params["user"] = usuario_limpo
+                st.success("Login realizado com sucesso!")
+                st.rerun()
             else:
-                opcoes_id = df_dados['ID'].tolist()
-                id_selecionado = st.selectbox("Selecione o ID do registro:", opcoes_id)
-                
-                dados_id = df_dados[df_dados['ID'] == id_selecionado].iloc[0]
+                st.error("Usuário ou senha incorretos!")
 
-                with st.form("form_editar_cadastro"):
-                    col_e1, col_e2 = st.columns(2)
-                    with col_e1:
-                        edit_nome = st.text_input("Nome Completo", value=str(dados_id['NOME']))
-                        edit_setor = st.text_input("Setor", value=str(dados_id['SETOR']))
-                        edit_cargo = st.text_input("Cargo", value=str(dados_id['CARGO']))
-                    with col_e2:
-                        edit_tel = st.text_input("Telefone", value=str(dados_id['TELEFONE']))
-                        edit_email = st.text_input("E-mail", value=str(dados_id['EMAIL']))
+    st.stop()
 
-                    btn_atualizar = st.form_submit_button("Atualizar Registro")
+# --- CONEXÃO COM O GOOGLE SHEETS ---
+conn = st.connection("gsheets", type=GSheetsConnection)
+url_planilha = st.secrets["connections"]["gsheets"]["spreadsheet"]
 
-                    if btn_atualizar:
-                        numeros_tel = re.sub(r"\D", "", edit_tel)
-                        
-                        if not (edit_nome and edit_setor and edit_cargo and edit_tel and edit_email):
-                            st.error("Todos os campos devem estar preenchidos.")
-                        elif len(numeros_tel) != 11:
-                            st.error("O telefone deve conter exatamente 11 dígitos (DDD + Número).")
-                        elif not e_email_valido(edit_email):
-                            st.error("Por favor, insira um endereço de e-mail válido (exemplo: usuario@dominio.com).")
-                        else:
-                            tel_formatado = formatar_telefone(edit_tel)
-                            
-                            idx = df_dados[df_dados['ID'] == id_selecionado].index[0]
-                            df_dados.loc[idx, 'NOME'] = edit_nome.strip()
-                            df_dados.loc[idx, 'SETOR'] = edit_setor.strip()
-                            df_dados.loc[idx, 'CARGO'] = edit_cargo.strip()
-                            df_dados.loc[idx, 'TELEFONE'] = tel_formatado
-                            df_dados.loc[idx, 'EMAIL'] = edit_email.strip()
+# --- CONTROLE DA ABA SECRETA ---
+if "aba_secreta_desbloqueada" not in st.session_state:
+    st.session_state["aba_secreta_desbloqueada"] = False
 
-                            if salvar_dados(df_dados):
-                                st.success("Registro atualizado com sucesso!")
-                                time.sleep(1)
-                                st.rerun()
+# --- MENU LATERAL ---
+st.sidebar.title("Menu do Sistema")
+st.sidebar.write(f"Usuário: **{st.session_state.get('usuario_logado')}**")
+st.sidebar.write(f"Perfil: **{st.session_state.get('nivel_acesso')}**")
 
-    # --- ABA 4: EXCLUIR REGISTRO ---
-    if st.session_state['nivel'] == "Admin":
-        with guias[3]:
-            st.subheader("Excluir Registros")
-            st.warning("⚠️ **Atenção:** Selecione os registros na tabela abaixo e confirme a exclusão.")
+if st.sidebar.button("Sair"):
+    st.session_state["autenticado"] = False
+    st.session_state.pop("usuario_logado", None)
+    st.session_state.pop("nivel_acesso", None)
+    st.session_state["aba_secreta_desbloqueada"] = False
+    st.query_params.clear()
+    st.rerun()
 
-            # Exibe a tabela com caixa de seleção de exclusão
-            df_excluir = df_dados.copy()
-            df_excluir.insert(0, "Excluir", False)
+st.sidebar.divider()
 
-            edited_df = st.data_editor(
-                df_excluir,
-                column_config={"Excluir": st.column_config.CheckboxColumn("Excluir", default=False)},
-                disabled=['ID', 'NOME', 'SETOR', 'CARGO', 'TELEFONE', 'EMAIL'],
+# Lista dinâmica de abas
+opcoes_menu = ["Cadastro Rápido", "Controle de Prestadores", "Sublocatários", "Controle Gerentes de Loja"]
+if st.session_state["aba_secreta_desbloqueada"]:
+    opcoes_menu.append("🎮 Sala Secreta: Jogo da Forca")
+
+aba_selecionada = st.sidebar.radio("Navegação", opcoes_menu)
+
+# BOTÃO INVISÍVEL NA SIDEBAR
+st.sidebar.markdown('<span id="secret-btn-marker"></span>', unsafe_allow_html=True)
+if st.sidebar.button(" ", key="btn_secreto"):
+    st.session_state["aba_secreta_desbloqueada"] = not st.session_state["aba_secreta_desbloqueada"]
+    st.rerun()
+
+nivel = st.session_state.get("nivel_acesso")
+
+# --- ABA 1: CADASTRO RÁPIDO ---
+if aba_selecionada == "Cadastro Rápido":
+    st.title("Cadastro Rápido de Dados")
+
+    if nivel in ["Editor", "Admin"]:
+        with st.form("form_cadastro", clear_on_submit=True):
+            campo1 = st.text_input("Loja")
+            campo2 = st.text_input("Nome Completo")
+            campo3 = st.text_input("Endereço")
+            campo4 = st.text_input("Telefone (Apenas números, máximo 11 dígitos)")
+            campo5 = st.text_input("E-mail")
+            campo6 = st.text_input("Status")
+
+            btn_salvar = st.form_submit_button("Salvar")
+
+        if btn_salvar:
+            campos = [campo1, campo2, campo3, campo4, campo5, campo6]
+            if any(c.strip() == "" for c in campos):
+                st.error("Por favor, preencha todos os campos antes de salvar!")
+            elif not campo4.strip().isdigit():
+                st.error("O campo 'Telefone' deve conter apenas números inteiros!")
+            elif len(campo4.strip()) != 11:
+                st.error("O telefone deve conter exatamente 11 dígitos (ex: DDD + Número)!")
+            else:
+                try:
+                    df_existente = conn.read(spreadsheet=url_planilha, worksheet="Cadastro Rápido", ttl=0)
+
+                    novo_dado = pd.DataFrame(
+                        [
+                            {
+                                "Loja": campo1,
+                                "Nome Completo": campo2,
+                                "Endereço": campo3,
+                                "Telefone": str(campo4),
+                                "E-mail": campo5,
+                                "Status": campo6,
+                                "Cadastrado Por": st.session_state["usuario_logado"],
+                            }
+                        ]
+                    )
+
+                    df_atualizado = pd.concat([df_existente, novo_dado], ignore_index=True)
+                    conn.update(spreadsheet=url_planilha, worksheet="Cadastro Rápido", data=df_atualizado)
+
+                    st.success("Dados salvos com sucesso no Google Sheets!")
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"Erro ao salvar na planilha: {err}")
+    else:
+        st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
+
+    st.divider()
+    st.subheader("Visualização do Banco de Dados - Cadastros")
+
+    try:
+        df = conn.read(spreadsheet=url_planilha, worksheet="Cadastro Rápido", ttl=0)
+        
+        if nivel == "Admin" and not df.empty:
+            st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
+            
+            df_editor = df.copy()
+            df_editor.insert(0, "Excluir", False)
+            
+            tabela_editavel = st.data_editor(
+                df_editor,
                 hide_index=True,
-                use_container_width=True
+                use_container_width=True,
+                num_rows="fixed"
+            )
+            
+            linhas_para_remover = tabela_editavel[tabela_editavel["Excluir"] == True]
+            
+            if not linhas_para_remover.empty:
+                if st.button("Confirmar Exclusão dos Selecionados"):
+                    df_atualizado = tabela_editavel[tabela_editavel["Excluir"] == False].drop(columns=["Excluir"])
+                    conn.update(spreadsheet=url_planilha, worksheet="Cadastro Rápido", data=df_atualizado)
+                    st.success("Registro(s) removido(s) com sucesso!")
+                    st.rerun()
+        else:
+            st.dataframe(df, use_container_width=True)
+
+    except Exception as e:
+        st.info("Nenhum dado cadastrado ou erro ao conectar com a guia 'Cadastro Rápido'.")
+
+# --- ABA 2: CONTROLE DE PRESTADORES ---
+elif aba_selecionada == "Controle de Prestadores":
+    st.title("Controle de Prestadores de Serviço")
+
+    if nivel in ["Editor", "Admin"]:
+        with st.form("form_prestadores", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                p_regiao = st.text_input("Região")
+                p_nome = st.text_input("Prestador de Serviço")
+                p_servicos = st.text_input("Serviços")
+                p_tel = st.text_input("Telefone (Apenas números, 11 dígitos)")
+
+            with col2:
+                p_email = st.text_input("E-mail")
+                p_avaliacao = st.slider("Avaliação de 0 a 5", min_value=0, max_value=5, value=5)
+                p_prazo = st.text_input("Prazo pag.")
+                p_nf = st.text_input("NF.")
+
+            btn_salvar_p = st.form_submit_button("Cadastrar Prestador")
+
+        if btn_salvar_p:
+            campos_obrigatorios = [p_regiao, p_nome, p_servicos, p_tel, p_email, p_prazo, p_nf]
+            if any(c.strip() == "" for c in campos_obrigatorios):
+                st.error("Por favor, preencha todos os campos do formulário!")
+            elif not p_tel.strip().isdigit() or len(p_tel.strip()) != 11:
+                st.error("O campo 'Telefone' deve conter exatamente 11 dígitos numéricos!")
+            else:
+                try:
+                    df_prestadores = conn.read(spreadsheet=url_planilha, worksheet="Controle de Prestadores", ttl=0)
+
+                    novo_prestador = pd.DataFrame(
+                        [
+                            {
+                                "Região": p_regiao,
+                                "Prestador de Serviço": p_nome,
+                                "Serviços": p_servicos,
+                                "Telefone": str(p_tel),
+                                "E-mail": p_email,
+                                "Avaliação de 0 a 5": int(p_avaliacao),
+                                "Prazo pag.": p_prazo,
+                                "NF.": p_nf,
+                                "Cadastrado Por": st.session_state["usuario_logado"],
+                            }
+                        ]
+                    )
+
+                    df_p_atualizado = pd.concat([df_prestadores, novo_prestador], ignore_index=True)
+                    conn.update(spreadsheet=url_planilha, worksheet="Controle de Prestadores", data=df_p_atualizado)
+
+                    st.success("Prestador cadastrado com sucesso!")
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"Erro ao salvar na guia 'Controle de Prestadores': {err}")
+    else:
+        st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
+
+    st.divider()
+    st.subheader("Visualização do Banco de Dados - Prestadores")
+
+    try:
+        df_p = conn.read(spreadsheet=url_planilha, worksheet="Controle de Prestadores", ttl=0)
+        
+        if nivel == "Admin" and not df_p.empty:
+            st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
+            
+            df_p_editor = df_p.copy()
+            df_p_editor.insert(0, "Excluir", False)
+            
+            tabela_p_editavel = st.data_editor(
+                df_p_editor,
+                hide_index=True,
+                use_container_width=True,
+                num_rows="fixed"
+            )
+            
+            linhas_p_remover = tabela_p_editavel[tabela_p_editavel["Excluir"] == True]
+            
+            if not linhas_p_remover.empty:
+                if st.button("Confirmar Exclusão dos Prestadores Selecionados"):
+                    df_p_atualizado = tabela_p_editavel[tabela_p_editavel["Excluir"] == False].drop(columns=["Excluir"])
+                    conn.update(spreadsheet=url_planilha, worksheet="Controle de Prestadores", data=df_p_atualizado)
+                    st.success("Prestador(es) removido(s) com sucesso!")
+                    st.rerun()
+        else:
+            st.dataframe(df_p, use_container_width=True)
+
+    except Exception as e:
+        st.info("Nenhum prestador cadastrado ou a guia 'Controle de Prestadores' ainda não foi criada no Google Sheets.")
+
+# --- ABA 3: SUBLOCATÁRIOS ---
+elif aba_selecionada == "Sublocatários":
+    st.title("Controle de Sublocatários")
+
+    if nivel in ["Editor", "Admin"]:
+        with st.form("form_sublocatarios", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+
+            with col1:
+                sub_loja = st.text_input("Loja")
+                sub_endereco = st.text_input("Endereço")
+                sub_nome = st.text_input("Nome completo")
+                sub_tel = st.text_input("Telefone (Apenas números, 11 dígitos)")
+                sub_rep = st.text_input("Nome do representante legal")
+                sub_email = st.text_input("E-mail")
+                sub_data_inicio = st.date_input("Data de inicio", value=datetime.date.today(), format="DD/MM/YYYY")
+
+            with col2:
+                sub_data_fim = st.date_input("Data de encerramento", value=datetime.date.today(), format="DD/MM/YYYY")
+                sub_tipo_espaco = st.text_input("Tipo de espaço")
+                sub_metragem_num = st.number_input("Metragem ocupada (m²)", min_value=0.0, step=1.0, format="%.2f")
+                sub_energia = st.text_input("Demanda de energia")
+                sub_pontos = st.text_input("Pontos de consumo")
+                sub_segmento = st.text_input("Segmento")
+                sub_horario = st.text_input("Horário de funcionamento")
+
+            btn_salvar_sub = st.form_submit_button("Cadastrar Sublocatário")
+
+        if btn_salvar_sub:
+            campos_texto = [
+                sub_loja, sub_endereco, sub_nome, sub_tel, sub_rep,
+                sub_email, sub_tipo_espaco, sub_energia, sub_pontos,
+                sub_segmento, sub_horario
+            ]
+
+            if any(c.strip() == "" for c in campos_texto):
+                st.error("Por favor, preencha todos os campos do formulário!")
+            elif not sub_tel.strip().isdigit() or len(sub_tel.strip()) != 11:
+                st.error("O campo 'Telefone' deve conter exatamente 11 dígitos numéricos!")
+            elif sub_metragem_num <= 0:
+                st.error("A 'Metragem ocupada' deve ser maior que zero!")
+            else:
+                try:
+                    df_sub = conn.read(spreadsheet=url_planilha, worksheet="Sublocatários", ttl=0)
+
+                    metragem_formatada = f"{sub_metragem_num:g} m²"
+                    data_ini_str = sub_data_inicio.strftime("%d/%m/%Y")
+                    data_fim_str = sub_data_fim.strftime("%d/%m/%Y")
+
+                    novo_sublocatario = pd.DataFrame(
+                        [
+                            {
+                                "Loja": sub_loja,
+                                "Endereço": sub_endereco,
+                                "Nome completo": sub_nome,
+                                "Telefone": str(sub_tel),
+                                "Nome do representante legal": sub_rep,
+                                "E-mail": sub_email,
+                                "Data de inicio": data_ini_str,
+                                "Data de encerramento": data_fim_str,
+                                "Tipo de espaço": sub_tipo_espaco,
+                                "Metragem ocupada": metragem_formatada,
+                                "Demanda de energia": sub_energia,
+                                "Pontos de consumo": sub_pontos,
+                                "Segmento": sub_segmento,
+                                "Horário de funcionamento": sub_horario,
+                                "Cadastrado Por": st.session_state["usuario_logado"],
+                            }
+                        ]
+                    )
+
+                    df_sub_atualizado = pd.concat([df_sub, novo_sublocatario], ignore_index=True)
+                    conn.update(spreadsheet=url_planilha, worksheet="Sublocatários", data=df_sub_atualizado)
+
+                    st.success("Sublocatário cadastrado com sucesso!")
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"Erro ao salvar na guia 'Sublocatários': {err}")
+    else:
+        st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
+
+    st.divider()
+    st.subheader("Visualização do Banco de Dados - Sublocatários")
+
+    try:
+        df_s = conn.read(spreadsheet=url_planilha, worksheet="Sublocatários", ttl=0)
+
+        if nivel == "Admin" and not df_s.empty:
+            st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
+
+            df_s_editor = df_s.copy()
+            df_s_editor.insert(0, "Excluir", False)
+
+            tabela_s_editavel = st.data_editor(
+                df_s_editor,
+                hide_index=True,
+                use_container_width=True,
+                num_rows="fixed"
             )
 
-            registros_para_excluir = edited_df[edited_df['Excluir'] == True]
+            linhas_s_remover = tabela_s_editavel[tabela_s_editavel["Excluir"] == True]
 
-            if not registros_para_excluir.empty:
-                st.error(f"Você selecionou {len(registros_para_excluir)} registro(s) para exclusão.")
-                if st.button("🔴 Confirmar Exclusão Definitiva"):
-                    ids_manter = edited_df[edited_df['Excluir'] == False]['ID'].tolist()
-                    df_final = df_dados[df_dados['ID'].isin(ids_manter)]
-                    
-                    if salvar_dados(df_final):
-                        st.success("Registros excluídos com sucesso!")
-                        time.sleep(1)
+            if not linhas_s_remover.empty:
+                if st.button("Confirmar Exclusão dos Sublocatários Selecionados"):
+                    df_s_atualizado = tabela_s_editavel[tabela_s_editavel["Excluir"] == False].drop(columns=["Excluir"])
+                    conn.update(spreadsheet=url_planilha, worksheet="Sublocatários", data=df_s_atualizado)
+                    st.success("Sublocatário(s) removido(s) com sucesso!")
+                    st.rerun()
+        else:
+            st.dataframe(df_s, use_container_width=True)
+
+    except Exception as e:
+        st.info("Nenhum sublocatário cadastrado ou a guia 'Sublocatários' ainda não foi criada no Google Sheets.")
+
+# --- ABA 4: CONTROLE GERENTES DE LOJA ---
+elif aba_selecionada == "Controle Gerentes de Loja":
+    st.title("Controle Gerentes de Loja")
+
+    if nivel in ["Editor", "Admin"]:
+        with st.form("form_gerentes", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+
+            with col1:
+                g_loja = st.text_input("Loja")
+                g_nome = st.text_input("Nome")
+                g_tel = st.text_input("Telefone (Apenas números, 11 dígitos)")
+
+            with col2:
+                g_email = st.text_input("E-mail")
+                g_cargo = st.text_input("Cargo")
+
+            btn_salvar_g = st.form_submit_button("Cadastrar Gerente")
+
+        if btn_salvar_g:
+            campos_gerente = [g_loja, g_nome, g_tel, g_email, g_cargo]
+
+            if any(c.strip() == "" for c in campos_gerente):
+                st.error("Por favor, preencha todos os campos do formulário!")
+            elif not g_tel.strip().isdigit() or len(g_tel.strip()) != 11:
+                st.error("O campo 'Telefone' deve conter exatamente 11 dígitos numéricos!")
+            else:
+                try:
+                    df_gerentes = conn.read(spreadsheet=url_planilha, worksheet="Controle Gerentes de Loja", ttl=0)
+
+                    novo_gerente = pd.DataFrame(
+                        [
+                            {
+                                "Loja": g_loja,
+                                "Nome": g_nome,
+                                "Telefone": str(g_tel),
+                                "E-mail": g_email,
+                                "Cargo": g_cargo,
+                                "Cadastrado Por": st.session_state["usuario_logado"],
+                            }
+                        ]
+                    )
+
+                    df_g_atualizado = pd.concat([df_gerentes, novo_gerente], ignore_index=True)
+                    conn.update(spreadsheet=url_planilha, worksheet="Controle Gerentes de Loja", data=df_g_atualizado)
+
+                    st.success("Gerente cadastrado com sucesso!")
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"Erro ao salvar na guia 'Controle Gerentes de Loja': {err}")
+    else:
+        st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
+
+    st.divider()
+    st.subheader("Visualização do Banco de Dados - Gerentes de Loja")
+
+    try:
+        df_g = conn.read(spreadsheet=url_planilha, worksheet="Controle Gerentes de Loja", ttl=0)
+
+        if nivel == "Admin" and not df_g.empty:
+            st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
+
+            df_g_editor = df_g.copy()
+            df_g_editor.insert(0, "Excluir", False)
+
+            tabela_g_editavel = st.data_editor(
+                df_g_editor,
+                hide_index=True,
+                use_container_width=True,
+                num_rows="fixed"
+            )
+
+            linhas_g_remover = tabela_g_editavel[tabela_g_editavel["Excluir"] == True]
+
+            if not linhas_g_remover.empty:
+                if st.button("Confirmar Exclusão dos Gerentes Selecionados"):
+                    df_g_atualizado = tabela_g_editavel[tabela_g_editavel["Excluir"] == False].drop(columns=["Excluir"])
+                    conn.update(spreadsheet=url_planilha, worksheet="Controle Gerentes de Loja", data=df_g_atualizado)
+                    st.success("Gerente(s) removido(s) com sucesso!")
+                    st.rerun()
+        else:
+            st.dataframe(df_g, use_container_width=True)
+
+    except Exception as e:
+        st.info("Nenhum gerente cadastrado ou a guia 'Controle Gerentes de Loja' ainda não foi criada no Google Sheets.")
+
+# --- ABA SECRETA: JOGO DA FORCA ---
+elif aba_selecionada == "🎮 Sala Secreta: Jogo da Forca":
+    st.title("🕵️‍♂️ Área Secreta - Jogo da Forca")
+    st.write("Parabéns por encontrar o modo secreto! Descanse um pouco e jogue uma partida.")
+
+    # Lista de Palavras secretas
+    PALAVRAS_FORCA = ["STREAMLIT", "PYTHON", "GERENTE", "SUBLOCATARIO", "PRESTADOR", "CADASTRO", "SISTEMA", "LOJA", "CONTRATO"]
+
+    # Inicialização das variáveis do jogo
+    if "palavra_secreta" not in st.session_state:
+        st.session_state["palavra_secreta"] = random.choice(PALAVRAS_FORCA)
+        st.session_state["letras_chutadas"] = []
+        st.session_state["tentativas_restantes"] = 6
+
+    def reiniciar_jogo():
+        st.session_state["palavra_secreta"] = random.choice(PALAVRAS_FORCA)
+        st.session_state["letras_chutadas"] = []
+        st.session_state["tentativas_restantes"] = 6
+
+    # Estágios da Forca em ASCII
+    ESTAGIOS_FORCA = [
+        """
+           +---+
+           |   |
+               |
+               |
+               |
+               |
+         =========""",
+        """
+           +---+
+           |   |
+           O   |
+               |
+               |
+               |
+         =========""",
+        """
+           +---+
+           |   |
+           O   |
+           |   |
+               |
+               |
+         =========""",
+        """
+           +---+
+           |   |
+           O   |
+          /|   |
+               |
+               |
+         =========""",
+        """
+           +---+
+           |   |
+           O   |
+          /|\\  |
+               |
+               |
+         =========""",
+        """
+           +---+
+           |   |
+           O   |
+          /|\\  |
+          /    |
+               |
+         =========""",
+        """
+           +---+
+           |   |
+           O   |
+          /|\\  |
+          / \\  |
+               |
+         ========="""
+    ]
+
+    col_jogo1, col_jogo2 = st.columns([1, 1])
+
+    with col_jogo1:
+        erros = 6 - st.session_state["tentativas_restantes"]
+        st.code(ESTAGIOS_FORCA[erros], language="text")
+
+    with col_jogo2:
+        # Mostra a palavra oculta
+        palavra_exibida = "".join([letra if letra in st.session_state["letras_chutadas"] else " _ " for letra in st.session_state["palavra_secreta"]])
+        st.subheader(f"Palavra: {palavra_exibida}")
+        st.write(f"Tentativas restantes: **{st.session_state['tentativas_restantes']}**")
+        st.write(f"Letras já tentadas: {', '.join(st.session_state['letras_chutadas'])}")
+
+        # Verificação de vitória ou derrota
+        ganhou = all(letra in st.session_state["letras_chutadas"] for letra in st.session_state["palavra_secreta"])
+        perdeu = st.session_state["tentativas_restantes"] <= 0
+
+        if not ganhou and not perdeu:
+            with st.form("form_forca", clear_on_submit=True):
+                chute = st.text_input("Digite uma letra:", max_chars=1).upper()
+                btn_chutar = st.form_submit_button("Tentar Letra")
+
+                if btn_chutar and chute:
+                    if not chute.isalpha():
+                        st.warning("Por favor, digite apenas letras!")
+                    elif chute in st.session_state["letras_chutadas"]:
+                        st.info("Você já tentou essa letra.")
+                    else:
+                        st.session_state["letras_chutadas"].append(chute)
+                        if chute not in st.session_state["palavra_secreta"]:
+                            st.session_state["tentativas_restantes"] -= 1
                         st.rerun()
+
+        if ganhou:
+            st.balloons()
+            st.success("🎉 Parabéns, você venceu!")
+            if st.button("Jogar Novamente"):
+                reiniciar_jogo()
+                st.rerun()
+
+        if perdeu:
+            st.error(f"☠️ Fim de jogo! A palavra era: **{st.session_state['palavra_secreta']}**")
+            if st.button("Tentar Novamente"):
+                reiniciar_jogo()
+                st.rerun()
