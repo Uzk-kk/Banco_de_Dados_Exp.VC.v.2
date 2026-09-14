@@ -47,6 +47,18 @@ st.markdown(
     div.stButton > button { background-color: #FFD80F; color: #000000; border-radius: 8px; border: none; padding: 10px 24px; font-weight: bold; }
     div.stButton > button:hover { background-color: #7B2CBF; color: #FFFFFF; }
     
+    /* ESTILIZAÇÃO DA BOLINHA DO RADIO (ST.RADIO) NO MENU LATERAL */
+    /* Cor da bolinha interna quando selecionado */
+    div[data-baseweb="radio"] div[aria-checked="true"] > div:first-child {
+        background-color: #341539 !important;
+        border-color: #FFD80F !important;
+    }
+    
+    /* Cor da borda do rádio quando não selecionado */
+    div[data-baseweb="radio"] div[aria-checked="false"] > div:first-child {
+        border-color: #FFD80F !important;
+    }
+
     /* Rodapé fixo de autoria */
     .footer-autoria {
         position: fixed;
