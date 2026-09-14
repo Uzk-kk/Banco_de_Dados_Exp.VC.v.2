@@ -47,16 +47,39 @@ st.markdown(
     div.stButton > button { background-color: #FFD80F; color: #000000; border-radius: 8px; border: none; padding: 10px 24px; font-weight: bold; }
     div.stButton > button:hover { background-color: #7B2CBF; color: #FFFFFF; }
     
-    /* ESTILIZAÇÃO DA BOLINHA DO RADIO (ST.RADIO) NO MENU LATERAL */
-    /* Cor da bolinha interna quando selecionado */
-    div[data-baseweb="radio"] div[aria-checked="true"] > div:first-child {
+    /* 1. ESTILIZAÇÃO DO BOTÃO RADIO (Navegação) */
+    /* Circulo externo / borda quando marcado */
+    div[data-testid="stRadioButton"] div[role="radiogroup"] label div[aria-checked="true"] {
+        border-color: #FFD80F !important;
+        background-color: #FFD80F !important;
+    }
+    /* Ponto/Bolinha interna do rádio para a cor roxa do background */
+    div[data-testid="stRadioButton"] div[role="radiogroup"] label div[aria-checked="true"] > div {
         background-color: #341539 !important;
+    }
+    /* Borda quando desmarcado */
+    div[data-testid="stRadioButton"] div[role="radiogroup"] label div[aria-checked="false"] {
         border-color: #FFD80F !important;
     }
-    
-    /* Cor da borda do rádio quando não selecionado */
-    div[data-baseweb="radio"] div[aria-checked="false"] > div:first-child {
+
+    /* 2. ESTILIZAÇÃO DO SLIDER (Avaliação) PARA AMARELO */
+    /* Bolinha/Puxador do slider */
+    div[data-baseweb="slider"] div[role="slider"] {
+        background-color: #FFD80F !important;
         border-color: #FFD80F !important;
+        box-shadow: none !important;
+    }
+    /* Linha ativa/preenchida do slider */
+    div[data-baseweb="slider"] div[data-testid="stSliderTickBar"] + div {
+        background-color: #FFD80F !important;
+    }
+    /* Trilha / Trilho do slider */
+    div[data-baseweb="slider"] > div > div {
+        background-color: rgba(255, 216, 15, 0.3) !important;
+    }
+    /* Rótulos dos valores (números) do slider */
+    div[data-testid="stSlider"] div {
+        color: #FFD80F !important;
     }
 
     /* Rodapé fixo de autoria */
