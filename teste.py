@@ -63,20 +63,27 @@ st.markdown(
         color: #FFFFFF !important; 
     }
 
-    /* BOTÃO SECRETO (Invisível/Discreto) */
+    /* BOTÃO SECRETO (Completamente Invisível) */
     div.secret-btn-container > button {
-        background-color: transparent !important;
-        color: #262730 !important; /* Mesma cor de fundo da sidebar */
+        background-color: #262730 !important;
+        color: #262730 !important; /* Texto da mesma cor do fundo */
         border: none !important;
+        outline: none !important;
         padding: 0px !important;
-        height: 15px !important;
+        height: 20px !important;
         width: 100% !important;
         box-shadow: none !important;
+        cursor: default !important; /* Desativa a "mãozinha" do clique ao passar o mouse */
     }
-    div.secret-btn-container > button:hover {
-        background-color: transparent !important;
-        color: rgba(255, 216, 15, 0.2) !important; /* Aparece discretamente ao passar o mouse */
-        cursor: default;
+    div.secret-btn-container > button:hover,
+    div.secret-btn-container > button:focus,
+    div.secret-btn-container > button:active {
+        background-color: #262730 !important;
+        color: #262730 !important;
+        border: none !important;
+        outline: none !important;
+        box-shadow: none !important;
+        cursor: default !important;
     }
 
     /* BOTÃO RADIO (Navegação no Menu Lateral - Seleção em Amarelo) */
@@ -227,7 +234,7 @@ if st.session_state["aba_secreta_desbloqueada"]:
 
 aba_selecionada = st.sidebar.radio("Navegação", opcoes_menu)
 
-# BOTÃO INVISÍVEL NA SIDEBAR (Clica na área vazia no final da barra para ativar)
+# BOTÃO INVISÍVEL NA SIDEBAR
 st.sidebar.markdown('<div class="secret-btn-container">', unsafe_allow_html=True)
 if st.sidebar.button(".", key="btn_secreto"):
     st.session_state["aba_secreta_desbloqueada"] = not st.session_state["aba_secreta_desbloqueada"]
