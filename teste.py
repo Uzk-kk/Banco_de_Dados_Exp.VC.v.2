@@ -62,25 +62,35 @@ st.markdown(
         background-color: #7B2CBF !important; 
         color: #FFFFFF !important; 
     }
-
-    /* BOTÃO SECRETO (Totalmente mesclado com a Sidebar) */
-    div.secret-btn-container button,
-    div.secret-btn-container button:hover,
-    div.secret-btn-container button:focus,
-    div.secret-btn-container button:active,
-    div.secret-btn-container button:focus:not(:focus-visible) {
-        background-color: #262730 !important;
-        background: #262730 !important;
-        color: #262730 !important;
-        border: none !important;
-        outline: none !important;
-        box-shadow: none !important;
-        height: 24px !important;
-        width: 100% !important;
-        cursor: pointer !important;
-        padding: 0 !important;
-        min-height: 0px !important;
+    
+   /* ÁREA CLICÁVEL INVISÍVEL */
+    .invisible-trigger {
+        display: block;
+        width: 100%;
+        height: 40px; /* Ajuste a altura do "nada" que será clicável */
+        background-color: transparent !important;
+        text-decoration: none !important;
+        cursor: default; /* Mantém o cursor normal para não dar pistas */
     }
+# --- LÓGICA DA ABA SECRETA VIA URL ---
+# Verifica se o link secreto foi clicado via parâmetro da URL
+query_params = st.query_params
+if "secret" in query_params:
+    # Alterna o estado da aba secreta ao clicar
+    if "aba_secreta_desbloqueada" not in st.session_state:
+        st.session_state["aba_secreta_desbloqueada"] = True
+    
+    # Limpa o parâmetro da URL para não ficar preso em loop
+    del st.query_params["secret"]
+    st.rerun()
+
+# --- ÁREA CLICÁVEL INVISÍVEL NA SIDEBAR ---
+# Este link aponta para a própria página adicionando '?secret=true'
+st.sidebar.markdown(
+    '<a href="?secret=true" target="_self" class="invisible-trigger"></a>', 
+    unsafe_allow_html=True
+)
+} 
 
     /* BOTÃO RADIO (Navegação no Menu Lateral - Seleção em Amarelo) */
     div[data-testid="stRadioButton"] label p {
