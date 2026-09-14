@@ -63,34 +63,23 @@ st.markdown(
         color: #FFFFFF !important; 
     }
     
-   /* ÁREA CLICÁVEL INVISÍVEL */
-    .invisible-trigger {
-        display: block;
-        width: 100%;
-        height: 40px; /* Ajuste a altura do "nada" que será clicável */
+    /* BOTÃO SECRETO INVISÍVEL NA SIDEBAR */
+    div.element-container:has(#secret-btn-marker) + div.element-container button {
         background-color: transparent !important;
-        text-decoration: none !important;
-        cursor: default; /* Mantém o cursor normal para não dar pistas */
+        border: none !important;
+        color: transparent !important;
+        box-shadow: none !important;
+        height: 30px !important;
+        width: 100% !important;
+        padding: 0 !important;
+        margin-top: 20px !important;
+        cursor: default !important;
     }
-# --- LÓGICA DA ABA SECRETA VIA URL ---
-# Verifica se o link secreto foi clicado via parâmetro da URL
-query_params = st.query_params
-if "secret" in query_params:
-    # Alterna o estado da aba secreta ao clicar
-    if "aba_secreta_desbloqueada" not in st.session_state:
-        st.session_state["aba_secreta_desbloqueada"] = True
-    
-    # Limpa o parâmetro da URL para não ficar preso em loop
-    del st.query_params["secret"]
-    st.rerun()
-
-# --- ÁREA CLICÁVEL INVISÍVEL NA SIDEBAR ---
-# Este link aponta para a própria página adicionando '?secret=true'
-st.sidebar.markdown(
-    '<a href="?secret=true" target="_self" class="invisible-trigger"></a>', 
-    unsafe_allow_html=True
-)
-} 
+    div.element-container:has(#secret-btn-marker) + div.element-container button:hover {
+        background-color: transparent !important;
+        color: transparent !important;
+        border: none !important;
+    }
 
     /* BOTÃO RADIO (Navegação no Menu Lateral - Seleção em Amarelo) */
     div[data-testid="stRadioButton"] label p {
@@ -240,12 +229,11 @@ if st.session_state["aba_secreta_desbloqueada"]:
 
 aba_selecionada = st.sidebar.radio("Navegação", opcoes_menu)
 
-# BOTÃO INVISÍVEL NA SIDEBAR (MESCLADO COM O BACKGROUND)
-st.sidebar.markdown('<div class="secret-btn-container">', unsafe_allow_html=True)
-if st.sidebar.button("‎", key="btn_secreto"):
+# BOTÃO INVISÍVEL NA SIDEBAR
+st.sidebar.markdown('<span id="secret-btn-marker"></span>', unsafe_allow_html=True)
+if st.sidebar.button(" ", key="btn_secreto"):
     st.session_state["aba_secreta_desbloqueada"] = not st.session_state["aba_secreta_desbloqueada"]
     st.rerun()
-st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
 nivel = st.session_state.get("nivel_acesso")
 
