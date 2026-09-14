@@ -89,6 +89,7 @@ if not st.session_state["autenticado"]:
 
 # --- CONEXÃO COM O GOOGLE SHEETS ---
 conn = st.connection("gsheets", type=GSheetsConnection)
+url_planilha = st.secrets["connections"]["gsheets"]["spreadsheet"]
 
 # --- MENU LATERAL (NAVEGAÇÃO ENTRE ABAS) ---
 st.sidebar.title("Menu do Sistema")
@@ -139,29 +140,32 @@ if aba_selecionada == "Cadastro Rápido":
                 st.error("O telefone deve conter exatamente 11 dígitos (ex: DDD + Número)!")
 
             else:
-                # Carrega os dados existentes do Google Sheets
-                df_existente = conn.read(ttl=0)
+                try:
+                    # Carrega os dados existentes
+                    df_existente = conn.read(spreadsheet=url_planilha, ttl=0)
 
-                novo_dado = pd.DataFrame(
-                    [
-                        {
-                            "Loja": campo1,
-                            "Nome Completo": campo2,
-                            "Endereço": campo3,
-                            "Telefone": str(campo4),
-                            "E-mail": campo5,
-                            "Status": campo6,
-                            "Cadastrado Por": st.session_state["usuario_logado"],
-                        }
-                    ]
-                )
+                    novo_dado = pd.DataFrame(
+                        [
+                            {
+                                "Loja": campo1,
+                                "Nome Completo": campo2,
+                                "Endereço": campo3,
+                                "Telefone": str(campo4),
+                                "E-mail": campo5,
+                                "Status": campo6,
+                                "Cadastrado Por": st.session_state["usuario_logado"],
+                            }
+                        ]
+                    )
 
-                # Consolida e atualiza a planilha
-                df_atualizado = pd.concat([df_existente, novo_dado], ignore_index=True)
-                conn.update(data=df_atualizado)
+                    # Consolida e atualiza a planilha
+                    df_atualizado = pd.concat([df_existente, novo_dado], ignore_index=True)
+                    conn.update(spreadsheet=url_planilha, data=df_atualizado)
 
-                st.success("Dados salvos com sucesso no Google Sheets!")
-                st.rerun()
+                    st.success("Dados salvos com sucesso no Google Sheets!")
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"Erro ao salvar na planilha: {err}")
 
     else:
         st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
@@ -171,7 +175,7 @@ if aba_selecionada == "Cadastro Rápido":
     st.subheader("Visualização do Banco de Dados")
 
     try:
-        df = conn.read(ttl=0)
+        df = conn.read(spreadsheet=url_planilha, ttl=0)
         
         if nivel == "Admin" and not df.empty:
             st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
@@ -191,7 +195,7 @@ if aba_selecionada == "Cadastro Rápido":
             if not linhas_para_remover.empty:
                 if st.button("Confirmar Exclusão dos Selecionados"):
                     df_atualizado = tabela_editavel[tabela_editavel["Excluir"] == False].drop(columns=["Excluir"])
-                    conn.update(data=df_atualizado)
+                    conn.update(spreadsheet=url_planilha, data=df_atualizado)
                     st.success("Registro(s) removido(s) com sucesso!")
                     st.rerun()
         else:
