@@ -4,10 +4,15 @@
 # Propriedade Intelectual e Desenvolvimento: Raphael Santos
 # Licença: Uso Exclusivo Autorizado - Proibida Replicação ou Alteração sem Autorização
 # Data de Criação: Set/2026
+# Atualização de Segurança: Set/2026 (token de sessão, hash de senha, rate limiting)
 # ==============================================================================
 
 import datetime
 import random
+import secrets  # ADICIONADO: geração de tokens de sessão aleatórios e seguros
+import hashlib  # ADICIONADO: hash de senhas (nunca mais salvar senha em texto puro)
+import hmac     # ADICIONADO: comparação de senha em tempo constante (evita timing attack)
+import time     # ADICIONADO: controle de tentativas de login (rate limiting)
 import pandas as pd
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
@@ -151,29 +156,153 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ==============================================================================
+# BLOCO DE SEGURANÇA - AUTENTICAÇÃO E SESSÃO
+# ==============================================================================
+#
+# COMO CONFIGURAR OS USUÁRIOS (st.secrets):
+# No arquivo .streamlit/secrets.toml (local) OU em "Settings > Secrets" no painel
+# do Streamlit Cloud, cadastre os usuários usando SENHA EM HASH, nunca em texto puro:
+#
+#   [USUARIOS.admin]
+#   senha = "COLE_AQUI_O_HASH_GERADO"
+#   nivel = "Admin"
+#
+# COMO GERAR O HASH DE UMA SENHA:
+# Rode este trecho uma única vez (no terminal, num arquivo .py separado, ou até
+# aqui mesmo comentando a linha st.stop() abaixo temporariamente) e copie o
+# resultado para o secrets.toml:
+#
+#   import hashlib
+#   print(hashlib.sha256("SUA_SENHA_AQUI".strip().encode("utf-8")).hexdigest())
+#
+# IMPORTANTE: como as senhas no secrets.toml agora precisam ser o HASH (e não
+# mais a senha em texto puro), você precisa gerar o hash de cada senha existente
+# e atualizar o secrets.toml antes de fazer login novamente.
+# ==============================================================================
+
+
+def gerar_hash_senha(senha: str) -> str:
+    """Gera o hash SHA-256 de uma senha em texto puro.
+    Use esta função só para GERAR o valor que vai no secrets.toml.
+    O app usa essa mesma função em tempo real para comparar com o hash salvo,
+    então a senha digitada nunca é comparada em texto puro."""
+    return hashlib.sha256(senha.strip().encode("utf-8")).hexdigest()
+
+
 # --- CARREGAMENTO SEGURO DE USUÁRIOS ---
+# IMPORTANTE: NÃO existe mais fallback com usuário/senha fixos (o antigo admin/1234
+# foi removido). Se os secrets não estiverem configurados corretamente, o acesso
+# fica bloqueado por completo — isso evita uma "porta dos fundos" esquecida em produção.
 try:
     dados_secrets = st.secrets["USUARIOS"]
     USUARIOS = {k.strip().lower(): v for k, v in dados_secrets.items()}
-except Exception:
-    USUARIOS = {"admin": {"senha": "1234", "nivel": "Admin"}}
+    if not USUARIOS:
+        raise ValueError("Nenhum usuário encontrado em st.secrets['USUARIOS'].")
+    ERRO_CONFIGURACAO = None
+except Exception as erro_config:
+    USUARIOS = {}
+    ERRO_CONFIGURACAO = str(erro_config)
 
-# --- PERSISTÊNCIA DE SESSÃO VIA URL ---
+
+# --- ARMAZENAMENTO DE SESSÕES (TOKENS) ---
+# Os tokens de sessão ficam guardados em memória no servidor (nunca na URL como
+# texto legível, nunca no navegador além do próprio token opaco).
+# st.cache_resource faz esse dicionário ser compartilhado entre todos os usuários
+# e sobreviver a "reruns" do Streamlit. Ele só é zerado se o servidor reiniciar
+# (ex: você fez um novo commit no GitHub e o Streamlit Cloud reimplantou o app) —
+# nesse caso, todo mundo simplesmente precisa logar de novo, o que é esperado.
+@st.cache_resource
+def obter_armazenamento_sessoes():
+    return {}  # formato: { token: {"usuario": str, "nivel": str, "expira_em": timestamp} }
+
+
+SESSOES = obter_armazenamento_sessoes()
+DURACAO_SESSAO_SEGUNDOS = 8 * 60 * 60  # login fica válido por 8 horas
+
+
+def criar_sessao(usuario: str, nivel: str) -> str:
+    """Cria um token aleatório e opaco para a sessão (isso é o que vai na URL,
+    nunca o nome do usuário)."""
+    token = secrets.token_urlsafe(32)
+    SESSOES[token] = {
+        "usuario": usuario,
+        "nivel": nivel,
+        "expira_em": time.time() + DURACAO_SESSAO_SEGUNDOS,
+    }
+    return token
+
+
+def validar_sessao(token: str):
+    """Retorna (usuario, nivel) se o token existir e ainda for válido, senão None."""
+    sessao = SESSOES.get(token)
+    if not sessao:
+        return None
+    if time.time() > sessao["expira_em"]:
+        SESSOES.pop(token, None)  # limpa sessão expirada da memória
+        return None
+    return sessao["usuario"], sessao["nivel"]
+
+
+def encerrar_sessao(token: str):
+    """Remove o token da memória do servidor (usado no logout)."""
+    SESSOES.pop(token, None)
+
+
+# --- PERSISTÊNCIA DE SESSÃO VIA URL (AGORA COM TOKEN, NÃO COM O NOME DO USUÁRIO) ---
 query_params = st.query_params
 
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 
-if not st.session_state["autenticado"] and "user" in query_params:
-    usuario_url = query_params["user"].strip().lower()
-    if usuario_url in USUARIOS:
+if not st.session_state["autenticado"] and "session" in query_params:
+    token_url = query_params["session"]
+    resultado_sessao = validar_sessao(token_url)
+    if resultado_sessao:
+        usuario_sessao, nivel_sessao = resultado_sessao
         st.session_state["autenticado"] = True
-        st.session_state["usuario_logado"] = usuario_url.title()
-        st.session_state["nivel_acesso"] = USUARIOS[usuario_url]["nivel"]
+        st.session_state["usuario_logado"] = usuario_sessao.title()
+        st.session_state["nivel_acesso"] = nivel_sessao
+        st.session_state["session_token"] = token_url
+    else:
+        # Token inválido, expirado, ou o servidor reiniciou -> limpa a URL
+        st.query_params.clear()
+
+
+# --- CONTROLE DE TENTATIVAS DE LOGIN (RATE LIMITING BÁSICO) ---
+# Evita força bruta simples: depois de MAX_TENTATIVAS erradas, bloqueia por um tempo.
+MAX_TENTATIVAS = 5
+BLOQUEIO_SEGUNDOS = 60
+
+if "tentativas_login" not in st.session_state:
+    st.session_state["tentativas_login"] = 0
+if "bloqueado_ate" not in st.session_state:
+    st.session_state["bloqueado_ate"] = 0
+
 
 # --- TELA DE LOGIN ---
 if not st.session_state["autenticado"]:
     st.title("Acesso Restrito")
+
+    if ERRO_CONFIGURACAO:
+        # SEM FALLBACK: se os secrets estiverem mal configurados, ninguém entra.
+        st.error(
+            "Erro de configuração: os usuários não foram carregados corretamente "
+            "a partir de st.secrets['USUARIOS']. Verifique o arquivo de secrets "
+            "no painel do Streamlit Cloud (ou o .streamlit/secrets.toml local).\n\n"
+            f"Detalhe técnico: {ERRO_CONFIGURACAO}"
+        )
+        st.stop()
+
+    agora = time.time()
+    tempo_restante_bloqueio = st.session_state["bloqueado_ate"] - agora
+
+    if tempo_restante_bloqueio > 0:
+        st.error(
+            f"Muitas tentativas incorretas. Tente novamente em "
+            f"{int(tempo_restante_bloqueio)} segundos."
+        )
+        st.stop()
 
     with st.form("form_login"):
         usuario_input = st.text_input("Usuário")
@@ -183,19 +312,43 @@ if not st.session_state["autenticado"]:
         if btn_login:
             usuario_limpo = usuario_input.strip().lower()
             senha_limpa = senha_input.strip()
+            hash_senha_digitada = gerar_hash_senha(senha_limpa)
 
-            if (
-                usuario_limpo in USUARIOS
-                and USUARIOS[usuario_limpo]["senha"] == senha_limpa
-            ):
+            usuario_existe = usuario_limpo in USUARIOS
+            hash_esperado = USUARIOS.get(usuario_limpo, {}).get("senha", "")
+
+            # hmac.compare_digest compara em tempo constante, para não vazar
+            # informação (via tempo de resposta) sobre se o usuário existe ou não.
+            senha_correta = hmac.compare_digest(hash_senha_digitada, hash_esperado)
+
+            if usuario_existe and senha_correta:
+                nivel_usuario = USUARIOS[usuario_limpo]["nivel"]
+                token = criar_sessao(usuario_limpo, nivel_usuario)
+
                 st.session_state["autenticado"] = True
                 st.session_state["usuario_logado"] = usuario_input.strip().title()
-                st.session_state["nivel_acesso"] = USUARIOS[usuario_limpo]["nivel"]
-                st.query_params["user"] = usuario_limpo
+                st.session_state["nivel_acesso"] = nivel_usuario
+                st.session_state["session_token"] = token
+                st.session_state["tentativas_login"] = 0  # zera o contador ao logar
+
+                st.query_params["session"] = token  # só o token vai na URL
                 st.success("Login realizado com sucesso!")
                 st.rerun()
             else:
-                st.error("Usuário ou senha incorretos!")
+                st.session_state["tentativas_login"] += 1
+                if st.session_state["tentativas_login"] >= MAX_TENTATIVAS:
+                    st.session_state["bloqueado_ate"] = time.time() + BLOQUEIO_SEGUNDOS
+                    st.session_state["tentativas_login"] = 0
+                    st.error(
+                        f"Muitas tentativas incorretas. Acesso bloqueado por "
+                        f"{BLOQUEIO_SEGUNDOS} segundos."
+                    )
+                else:
+                    tentativas_restantes = MAX_TENTATIVAS - st.session_state["tentativas_login"]
+                    st.error(
+                        f"Usuário ou senha incorretos! "
+                        f"({tentativas_restantes} tentativa(s) restante(s) antes do bloqueio)"
+                    )
 
     st.stop()
 
@@ -213,9 +366,13 @@ st.sidebar.write(f"Usuário: **{st.session_state.get('usuario_logado')}**")
 st.sidebar.write(f"Perfil: **{st.session_state.get('nivel_acesso')}**")
 
 if st.sidebar.button("Sair"):
+    # ATUALIZADO: agora também invalida o token de sessão no servidor,
+    # não só limpa o estado local, para que o link antigo pare de funcionar.
+    encerrar_sessao(st.session_state.get("session_token"))
     st.session_state["autenticado"] = False
     st.session_state.pop("usuario_logado", None)
     st.session_state.pop("nivel_acesso", None)
+    st.session_state.pop("session_token", None)
     st.session_state["aba_secreta_desbloqueada"] = False
     st.query_params.clear()
     st.rerun()
