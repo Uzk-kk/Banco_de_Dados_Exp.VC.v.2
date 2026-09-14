@@ -63,11 +63,12 @@ st.markdown(
         color: #FFFFFF !important; 
     }
 
-    /* BOTÃO SECRETO (Completamente Invisível e Mesclado) */
-    [data-testid="stSidebar"] div.secret-btn-container button,
-    [data-testid="stSidebar"] div.secret-btn-container button:hover,
-    [data-testid="stSidebar"] div.secret-btn-container button:focus,
-    [data-testid="stSidebar"] div.secret-btn-container button:active {
+    /* BOTÃO SECRETO (Totalmente mesclado com a Sidebar) */
+    div.secret-btn-container button,
+    div.secret-btn-container button:hover,
+    div.secret-btn-container button:focus,
+    div.secret-btn-container button:active,
+    div.secret-btn-container button:focus:not(:focus-visible) {
         background-color: #262730 !important;
         background: #262730 !important;
         color: #262730 !important;
@@ -76,7 +77,7 @@ st.markdown(
         box-shadow: none !important;
         height: 24px !important;
         width: 100% !important;
-        cursor: default !important;
+        cursor: pointer !important;
         padding: 0 !important;
         min-height: 0px !important;
     }
