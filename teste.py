@@ -21,9 +21,19 @@ try:
 except Exception:
     USUARIOS = {"admin": {"senha": "1234", "nivel": "Admin"}}
 
-# Inicializa o estado de autenticação
+# --- PERSISTÊNCIA DE SESSÃO VIA URL (F5 PERMANECE LOGADO) ---
+query_params = st.query_params
+
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
+
+# Se a página for atualizada (F5) e o usuário estiver salvo nos parâmetros de URL
+if not st.session_state["autenticado"] and "user" in query_params:
+    usuario_url = query_params["user"].strip().lower()
+    if usuario_url in USUARIOS:
+        st.session_state["autenticado"] = True
+        st.session_state["usuario_logado"] = usuario_url.title()
+        st.session_state["nivel_acesso"] = USUARIOS[usuario_url]["nivel"]
 
 # Customização CSS e Rodapé de Autoria
 st.markdown(
@@ -80,6 +90,10 @@ if not st.session_state["autenticado"]:
                 st.session_state["autenticado"] = True
                 st.session_state["usuario_logado"] = usuario_input.strip().title()
                 st.session_state["nivel_acesso"] = USUARIOS[usuario_limpo]["nivel"]
+                
+                # Salva o estado de login na URL
+                st.query_params["user"] = usuario_limpo
+                
                 st.success("Login realizado com sucesso!")
                 st.rerun()
             else:
@@ -101,6 +115,10 @@ if st.sidebar.button("Sair"):
     st.session_state["autenticado"] = False
     st.session_state.pop("usuario_logado", None)
     st.session_state.pop("nivel_acesso", None)
+    
+    # Limpa os parâmetros da URL ao deslogar
+    st.query_params.clear()
+    
     st.rerun()
 
 st.sidebar.divider()
