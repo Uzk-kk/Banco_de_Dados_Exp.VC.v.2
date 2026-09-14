@@ -7,6 +7,7 @@
 # ==============================================================================
 
 import datetime
+import random
 import pandas as pd
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
@@ -62,6 +63,22 @@ st.markdown(
         color: #FFFFFF !important; 
     }
 
+    /* BOTÃO SECRETO (Invisível/Discreto) */
+    div.secret-btn-container > button {
+        background-color: transparent !important;
+        color: #262730 !important; /* Mesma cor de fundo da sidebar */
+        border: none !important;
+        padding: 0px !important;
+        height: 15px !important;
+        width: 100% !important;
+        box-shadow: none !important;
+    }
+    div.secret-btn-container > button:hover {
+        background-color: transparent !important;
+        color: rgba(255, 216, 15, 0.2) !important; /* Aparece discretamente ao passar o mouse */
+        cursor: default;
+    }
+
     /* BOTÃO RADIO (Navegação no Menu Lateral - Seleção em Amarelo) */
     div[data-testid="stRadioButton"] label p {
         color: #FFD80F !important;
@@ -88,7 +105,6 @@ st.markdown(
     }
 
     /* SLIDER DE AVALIAÇÃO (Barra Amarela) */
-    /* Linha Ativa do Slider */
     div[data-testid="stSlider"] [data-baseweb="slider"] div[role="slider"] ~ div,
     div[data-testid="stSlider"] [data-baseweb="slider"] div[style*="background-color"],
     div[data-testid="stSlider"] [data-baseweb="slider"] > div > div > div {
@@ -185,6 +201,10 @@ if not st.session_state["autenticado"]:
 conn = st.connection("gsheets", type=GSheetsConnection)
 url_planilha = st.secrets["connections"]["gsheets"]["spreadsheet"]
 
+# --- CONTROLE DA ABA SECRETA ---
+if "aba_secreta_desbloqueada" not in st.session_state:
+    st.session_state["aba_secreta_desbloqueada"] = False
+
 # --- MENU LATERAL ---
 st.sidebar.title("Menu do Sistema")
 st.sidebar.write(f"Usuário: **{st.session_state.get('usuario_logado')}**")
@@ -194,15 +214,25 @@ if st.sidebar.button("Sair"):
     st.session_state["autenticado"] = False
     st.session_state.pop("usuario_logado", None)
     st.session_state.pop("nivel_acesso", None)
+    st.session_state["aba_secreta_desbloqueada"] = False
     st.query_params.clear()
     st.rerun()
 
 st.sidebar.divider()
 
-aba_selecionada = st.sidebar.radio(
-    "Navegação",
-    ["Cadastro Rápido", "Controle de Prestadores", "Sublocatários", "Controle Gerentes de Loja"],
-)
+# Lista dinâmica de abas
+opcoes_menu = ["Cadastro Rápido", "Controle de Prestadores", "Sublocatários", "Controle Gerentes de Loja"]
+if st.session_state["aba_secreta_desbloqueada"]:
+    opcoes_menu.append("🎮 Sala Secreta: Jogo da Forca")
+
+aba_selecionada = st.sidebar.radio("Navegação", opcoes_menu)
+
+# BOTÃO INVISÍVEL NA SIDEBAR (Clica na área vazia no final da barra para ativar)
+st.sidebar.markdown('<div class="secret-btn-container">', unsafe_allow_html=True)
+if st.sidebar.button(".", key="btn_secreto"):
+    st.session_state["aba_secreta_desbloqueada"] = not st.session_state["aba_secreta_desbloqueada"]
+    st.rerun()
+st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
 nivel = st.session_state.get("nivel_acesso")
 
@@ -580,3 +610,128 @@ elif aba_selecionada == "Controle Gerentes de Loja":
 
     except Exception as e:
         st.info("Nenhum gerente cadastrado ou a guia 'Controle Gerentes de Loja' ainda não foi criada no Google Sheets.")
+
+# --- ABA SECRETA: JOGO DA FORCA ---
+elif aba_selecionada == "🎮 Sala Secreta: Jogo da Forca":
+    st.title("🕵️‍♂️ Área Secreta - Jogo da Forca")
+    st.write("Parabéns por encontrar o modo secreto! Descanse um pouco e jogue uma partida.")
+
+    # Lista de Palavras secretas
+    PALAVRAS_FORCA = ["STREAMLIT", "PYTHON", "GERENTE", "SUBLOCATARIO", "PRESTADOR", "CADASTRO", "SISTEMA", "LOJA", "CONTRATO"]
+
+    # Inicialização das variáveis do jogo
+    if "palavra_secreta" not in st.session_state:
+        st.session_state["palavra_secreta"] = random.choice(PALAVRAS_FORCA)
+        st.session_state["letras_chutadas"] = []
+        st.session_state["tentativas_restantes"] = 6
+
+    def reiniciar_jogo():
+        st.session_state["palavra_secreta"] = random.choice(PALAVRAS_FORCA)
+        st.session_state["letras_chutadas"] = []
+        st.session_state["tentativas_restantes"] = 6
+
+    # Estágios da Forca em ASCII
+    ESTAGIOS_FORCA = [
+        """
+           +---+
+           |   |
+               |
+               |
+               |
+               |
+         =========""",
+        """
+           +---+
+           |   |
+           O   |
+               |
+               |
+               |
+         =========""",
+        """
+           +---+
+           |   |
+           O   |
+           |   |
+               |
+               |
+         =========""",
+        """
+           +---+
+           |   |
+           O   |
+          /|   |
+               |
+               |
+         =========""",
+        """
+           +---+
+           |   |
+           O   |
+          /|\\  |
+               |
+               |
+         =========""",
+        """
+           +---+
+           |   |
+           O   |
+          /|\\  |
+          /    |
+               |
+         =========""",
+        """
+           +---+
+           |   |
+           O   |
+          /|\\  |
+          / \\  |
+               |
+         ========="""
+    ]
+
+    col_jogo1, col_jogo2 = st.columns([1, 1])
+
+    with col_jogo1:
+        erros = 6 - st.session_state["tentativas_restantes"]
+        st.code(ESTAGIOS_FORCA[erros], language="text")
+
+    with col_jogo2:
+        # Mostra a palavra oculta
+        palavra_exibida = "".join([letra if letra in st.session_state["letras_chutadas"] else " _ " for letra in st.session_state["palavra_secreta"]])
+        st.subheader(f"Palavra: {palavra_exibida}")
+        st.write(f"Tentativas restantes: **{st.session_state['tentativas_restantes']}**")
+        st.write(f"Letras já tentadas: {', '.join(st.session_state['letras_chutadas'])}")
+
+        # Verificação de vitória ou derrota
+        ganhou = all(letra in st.session_state["letras_chutadas"] for letra in st.session_state["palavra_secreta"])
+        perdeu = st.session_state["tentativas_restantes"] <= 0
+
+        if not ganhou and not perdeu:
+            with st.form("form_forca", clear_on_submit=True):
+                chute = st.text_input("Digite uma letra:", max_chars=1).upper()
+                btn_chutar = st.form_submit_button("Tentar Letra")
+
+                if btn_chutar and chute:
+                    if not chute.isalpha():
+                        st.warning("Por favor, digite apenas letras!")
+                    elif chute in st.session_state["letras_chutadas"]:
+                        st.info("Você já tentou essa letra.")
+                    else:
+                        st.session_state["letras_chutadas"].append(chute)
+                        if chute not in st.session_state["palavra_secreta"]:
+                            st.session_state["tentativas_restantes"] -= 1
+                        st.rerun()
+
+        if ganhou:
+            st.balloons()
+            st.success("🎉 Parabéns, você venceu!")
+            if st.button("Jogar Novamente"):
+                reiniciar_jogo()
+                st.rerun()
+
+        if perdeu:
+            st.error(f"☠️ Fim de jogo! A palavra era: **{st.session_state['palavra_secreta']}**")
+            if st.button("Tentar Novamente"):
+                reiniciar_jogo()
+                st.rerun()
