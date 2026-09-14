@@ -82,25 +82,22 @@ st.markdown(
     }
 
     /* ==================================================================
-       MENU LATERAL PERSONALIZADO (CORREÇÃO DE EXIBIÇÃO DE TEXTO)
+       MENU LATERAL PERSONALIZADO (NOVA CORREÇÃO COMPATÍVEL)
        ================================================================== */
-    /* Container do grupo de rádio */
-    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] {
-        gap: 12px !important;
+    /* Container do Radio Group */
+    [data-testid="stSidebar"] [role="radiogroup"] {
+        gap: 10px !important;
         width: 100% !important;
     }
 
-    /* Oculta estritamente o círculo/bolinha do radio sem esconder o texto */
-    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label input[type="radio"],
-    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label > div:first-of-type {
+    /* Oculta a bolinha/círculo nativo do Radio */
+    [data-testid="stSidebar"] [role="radiogroup"] [data-testid="stRadioButton"] > div:first-child,
+    [data-testid="stSidebar"] [role="radiogroup"] input[type="radio"] {
         display: none !important;
-        width: 0px !important;
-        height: 0px !important;
-        margin: 0 !important;
     }
 
-    /* Estilização do Botão Roxo da Aba */
-    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label {
+    /* Estilização do rótulo/botão */
+    [data-testid="stSidebar"] [role="radiogroup"] label {
         background-color: #341539 !important;
         border: 1px solid rgba(255, 216, 15, 0.4) !important;
         border-radius: 8px !important;
@@ -114,26 +111,25 @@ st.markdown(
         margin: 0 !important;
     }
 
-    /* Garante a visibilidade e formatação do texto do botão */
-    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label * {
+    /* Formatação do Texto dentro do Botão */
+    [data-testid="stSidebar"] [role="radiogroup"] label p {
         color: #FFD80F !important;
-        font-size: 13px !important;
+        font-size: 14px !important;
         font-weight: bold !important;
         text-align: center !important;
-        visibility: visible !important;
-        display: block !important;
+        margin: 0 !important;
     }
 
-    /* Efeito Hover ao passar o mouse */
-    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label:hover {
+    /* Efeito Hover */
+    [data-testid="stSidebar"] [role="radiogroup"] label:hover {
         background-color: #4A1E52 !important;
         border-color: #FFD80F !important;
         box-shadow: 0px 0px 8px rgba(255, 216, 15, 0.4) !important;
     }
 
-    /* Item Selecionado / Ativo */
-    [data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) {
-        background-color: #341539 !important;
+    /* Opção Selecionada (Ativa) */
+    [data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) {
+        background-color: #4A1E52 !important;
         border: 2px solid #FFD80F !important;
         box-shadow: 0px 0px 12px rgba(255, 216, 15, 0.7) !important;
     }
