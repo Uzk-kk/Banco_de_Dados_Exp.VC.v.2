@@ -120,7 +120,7 @@ st.markdown(
     }
 
     .footer-autoria {
-        position: relative;
+        position: fixed;
         left: 0;
         bottom: 0;
         width: 100%;
@@ -132,7 +132,11 @@ st.markdown(
         font-weight: bold;
         z-index: 9999;
         border-top: 1px solid #FFD80F;
-        margin-top: 40px; /* Adiciona uma margem superior para afastar do conteúdo */
+    }
+    
+    /* Adiciona um espaço no final da página para o conteúdo não ser coberto pelo rodapé */
+    .stAppViewMain .main .block-container {
+        padding-bottom: 80px !important;
     }
     </style>
     <div class="footer-autoria">
