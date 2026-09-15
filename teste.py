@@ -4,8 +4,6 @@
 # Propriedade Intelectual e Desenvolvimento: Raphael Santos
 # Licença: Uso Exclusivo Autorizado - Proibida Replicação ou Alteração sem Autorização
 # Data de Criação: Set/2026
-# Atualização: Set/2026 (adição do Jogo da Cobrinha como segunda aba secreta,
-#              liberada pelo mesmo botão invisível da Forca)
 # ==============================================================================
 
 import datetime
@@ -16,34 +14,28 @@ import hmac
 import time     
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components  # ADICIONADO: usado para embutir o Jogo da Cobrinha
+import streamlit.components.v1 as components
 from streamlit_gsheets import GSheetsConnection
 
-# 1. Configuração visual da página (DEVE SER A PRIMEIRA INSTRUÇÃO STREAMLIT)
 st.set_page_config(page_title="Sistema de Cadastro e Gestão", layout="wide")
 
-# 2. Customização CSS e Rodapé de Autoria
 st.markdown(
     """
     <style>
-    /* Fundo principal da aplicação */
     .stApp { 
         background-color: #341539 !important; 
     }
 
-    /* BARRA LATERAL (SIDEBAR) - Cor cinza igual às caixas de texto */
     [data-testid="stSidebar"] {
         background-color: #262730 !important;
         border-right: 1px solid rgba(255, 216, 15, 0.2) !important;
     }
 
-    /* Títulos e Rótulos principais */
     h1, h2, h3, label, [data-testid="stMarkdownContainer"] p { 
         color: #FFD80F !important; 
         font-weight: bold !important; 
     }
 
-    /* CAIXAS DE INSERÇÃO DE TEXTO (INPUTS) - Fundo Cinza Escuro */
     div[data-baseweb="input"] > div { 
         background-color: #262730 !important; 
         border: 1px solid rgba(255, 216, 15, 0.3) !important;
@@ -54,7 +46,6 @@ st.markdown(
         font-weight: normal !important;
     }
 
-    /* BOTÕES E FORMULÁRIOS PADRÃO */
     [data-testid="stForm"] { border: none !important; padding: 0 !important; }
     
     div.stButton > button, div[data-testid="stFormSubmitButton"] > button { 
@@ -70,7 +61,6 @@ st.markdown(
         color: #FFFFFF !important; 
     }
     
-    /* BOTÃO SECRETO INVISÍVEL NA SIDEBAR */
     div.element-container:has(#secret-btn-marker) + div.element-container button {
         background-color: transparent !important;
         border: none !important;
@@ -88,32 +78,27 @@ st.markdown(
         border: none !important;
     }
 
-    /* BOTÃO RADIO (Navegação no Menu Lateral - Seleção em Amarelo) */
     div[data-testid="stRadioButton"] label p {
         color: #FFD80F !important;
     }
 
-    /* Radio Ativo - Círculo Externo e Preenchimento */
     div[data-testid="stRadioButton"] [aria-checked="true"] div:first-child,
     div[data-testid="stRadioButton"] [data-baseweb="radio"] input:checked + div {
         border-color: #FFD80F !important;
         background-color: #FFD80F !important;
     }
 
-    /* Radio Ativo - Ponto Central Interno */
     div[data-testid="stRadioButton"] [aria-checked="true"] div:first-child > div,
     div[data-testid="stRadioButton"] [data-baseweb="radio"] input:checked + div > div {
         background-color: #262730 !important;
     }
 
-    /* Radio Inativo - Apenas Borda Amarela */
     div[data-testid="stRadioButton"] [aria-checked="false"] div:first-child,
     div[data-testid="stRadioButton"] [data-baseweb="radio"] input:not(:checked) + div {
         border-color: #FFD80F !important;
         background-color: transparent !important;
     }
 
-    /* SLIDER DE AVALIAÇÃO (Barra Amarela) */
     div[data-testid="stSlider"] [data-baseweb="slider"] div[role="slider"] ~ div,
     div[data-testid="stSlider"] [data-baseweb="slider"] div[style*="background-color"],
     div[data-testid="stSlider"] [data-baseweb="slider"] > div > div > div {
@@ -121,21 +106,18 @@ st.markdown(
         background-color: #FFD80F !important;
     }
 
-    /* Puxador / Bolinha do Slider */
     div[data-testid="stSlider"] [role="slider"] {
         background-color: #FFD80F !important;
         border-color: #FFD80F !important;
         box-shadow: 0px 0px 6px rgba(255, 216, 15, 0.9) !important;
     }
 
-    /* Rótulos e Números do Slider */
     div[data-testid="stSlider"] [data-testid="stTickBar"] div,
     div[data-testid="stSlider"] div,
     div[data-testid="stSlider"] p {
         color: #FFD80F !important;
     }
 
-    /* Rodapé fixo de autoria */
     .footer-autoria {
         position: fixed;
         left: 0;
@@ -158,44 +140,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ==============================================================================
-# BLOCO DE SEGURANÇA - AUTENTICAÇÃO E SESSÃO
-# ==============================================================================
-#
-# COMO CONFIGURAR OS USUÁRIOS (st.secrets):
-# No arquivo .streamlit/secrets.toml (local) OU em "Settings > Secrets" no painel
-# do Streamlit Cloud, cadastre os usuários usando SENHA EM HASH, nunca em texto puro:
-#
-#   [USUARIOS.admin]
-#   senha = "COLE_AQUI_O_HASH_GERADO"
-#   nivel = "Admin"
-#
-# COMO GERAR O HASH DE UMA SENHA:
-# Rode este trecho uma única vez (no terminal, num arquivo .py separado, ou até
-# aqui mesmo comentando a linha st.stop() abaixo temporariamente) e copie o
-# resultado para o secrets.toml:
-#
-#   import hashlib
-#   print(hashlib.sha256("SUA_SENHA_AQUI".strip().encode("utf-8")).hexdigest())
-#
-# IMPORTANTE: como as senhas no secrets.toml agora precisam ser o HASH (e não
-# mais a senha em texto puro), você precisa gerar o hash de cada senha existente
-# e atualizar o secrets.toml antes de fazer login novamente.
-# ==============================================================================
-
-
 def gerar_hash_senha(senha: str) -> str:
-    """Gera o hash SHA-256 de uma senha em texto puro.
-    Use esta função só para GERAR o valor que vai no secrets.toml.
-    O app usa essa mesma função em tempo real para comparar com o hash salvo,
-    então a senha digitada nunca é comparada em texto puro."""
     return hashlib.sha256(senha.strip().encode("utf-8")).hexdigest()
 
-
-# --- CARREGAMENTO SEGURO DE USUÁRIOS ---
-# IMPORTANTE: NÃO existe mais fallback com usuário/senha fixos (o antigo admin/1234
-# foi removido). Se os secrets não estiverem configurados corretamente, o acesso
-# fica bloqueado por completo — isso evita uma "porta dos fundos" esquecida em produção.
 try:
     dados_secrets = st.secrets["USUARIOS"]
     USUARIOS = {k.strip().lower(): v for k, v in dados_secrets.items()}
@@ -206,26 +153,14 @@ except Exception as erro_config:
     USUARIOS = {}
     ERRO_CONFIGURACAO = str(erro_config)
 
-
-# --- ARMAZENAMENTO DE SESSÕES (TOKENS) ---
-# Os tokens de sessão ficam guardados em memória no servidor (nunca na URL como
-# texto legível, nunca no navegador além do próprio token opaco).
-# st.cache_resource faz esse dicionário ser compartilhado entre todos os usuários
-# e sobreviver a "reruns" do Streamlit. Ele só é zerado se o servidor reiniciar
-# (ex: você fez um novo commit no GitHub e o Streamlit Cloud reimplantou o app) —
-# nesse caso, todo mundo simplesmente precisa logar de novo, o que é esperado.
 @st.cache_resource
 def obter_armazenamento_sessoes():
-    return {}  # formato: { token: {"usuario": str, "nivel": str, "expira_em": timestamp} }
-
+    return {}
 
 SESSOES = obter_armazenamento_sessoes()
-DURACAO_SESSAO_SEGUNDOS = 8 * 60 * 60  # login fica válido por 8 horas
-
+DURACAO_SESSAO_SEGUNDOS = 8 * 60 * 60
 
 def criar_sessao(usuario: str, nivel: str) -> str:
-    """Cria um token aleatório e opaco para a sessão (isso é o que vai na URL,
-    nunca o nome do usuário)."""
     token = secrets.token_urlsafe(32)
     SESSOES[token] = {
         "usuario": usuario,
@@ -234,24 +169,18 @@ def criar_sessao(usuario: str, nivel: str) -> str:
     }
     return token
 
-
 def validar_sessao(token: str):
-    """Retorna (usuario, nivel) se o token existir e ainda for válido, senão None."""
     sessao = SESSOES.get(token)
     if not sessao:
         return None
     if time.time() > sessao["expira_em"]:
-        SESSOES.pop(token, None)  # limpa sessão expirada da memória
+        SESSOES.pop(token, None)
         return None
     return sessao["usuario"], sessao["nivel"]
 
-
 def encerrar_sessao(token: str):
-    """Remove o token da memória do servidor (usado no logout)."""
     SESSOES.pop(token, None)
 
-
-# --- PERSISTÊNCIA DE SESSÃO VIA URL (AGORA COM TOKEN, NÃO COM O NOME DO USUÁRIO) ---
 query_params = st.query_params
 
 if "autenticado" not in st.session_state:
@@ -267,12 +196,8 @@ if not st.session_state["autenticado"] and "session" in query_params:
         st.session_state["nivel_acesso"] = nivel_sessao
         st.session_state["session_token"] = token_url
     else:
-        # Token inválido, expirado, ou o servidor reiniciou -> limpa a URL
         st.query_params.clear()
 
-
-# --- CONTROLE DE TENTATIVAS DE LOGIN (RATE LIMITING BÁSICO) ---
-# Evita força bruta simples: depois de MAX_TENTATIVAS erradas, bloqueia por um tempo.
 MAX_TENTATIVAS = 5
 BLOQUEIO_SEGUNDOS = 60
 
@@ -281,13 +206,10 @@ if "tentativas_login" not in st.session_state:
 if "bloqueado_ate" not in st.session_state:
     st.session_state["bloqueado_ate"] = 0
 
-
-# --- TELA DE LOGIN ---
 if not st.session_state["autenticado"]:
     st.title("Acesso Restrito")
 
     if ERRO_CONFIGURACAO:
-        # SEM FALLBACK: se os secrets estiverem mal configurados, ninguém entra.
         st.error(
             "Erro de configuração: os usuários não foram carregados corretamente "
             "a partir de st.secrets['USUARIOS']. Verifique o arquivo de secrets "
@@ -319,8 +241,6 @@ if not st.session_state["autenticado"]:
             usuario_existe = usuario_limpo in USUARIOS
             hash_esperado = USUARIOS.get(usuario_limpo, {}).get("senha", "")
 
-            # hmac.compare_digest compara em tempo constante, para não vazar
-            # informação (via tempo de resposta) sobre se o usuário existe ou não.
             senha_correta = hmac.compare_digest(hash_senha_digitada, hash_esperado)
 
             if usuario_existe and senha_correta:
@@ -331,9 +251,9 @@ if not st.session_state["autenticado"]:
                 st.session_state["usuario_logado"] = usuario_input.strip().title()
                 st.session_state["nivel_acesso"] = nivel_usuario
                 st.session_state["session_token"] = token
-                st.session_state["tentativas_login"] = 0  # zera o contador ao logar
+                st.session_state["tentativas_login"] = 0
 
-                st.query_params["session"] = token  # só o token vai na URL
+                st.query_params["session"] = token
                 st.success("Login realizado com sucesso!")
                 st.rerun()
             else:
@@ -354,20 +274,9 @@ if not st.session_state["autenticado"]:
 
     st.stop()
 
-# --- CONEXÃO COM O GOOGLE SHEETS ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 url_planilha = st.secrets["connections"]["gsheets"]["spreadsheet"]
 
-# ==============================================================================
-# HELPER: LEITURA PADRONIZADA DAS ABAS
-# ==============================================================================
-# Lê uma aba e devolve um DataFrame com EXATAMENTE as colunas esperadas, na ordem
-# correta. Isso resolve 3 problemas comuns que estavam quebrando as novas abas:
-#   1) Aba com colunas duplicadas (ex: lixo de execuções/cópias anteriores)
-#   2) Aba com colunas em ordem diferente
-#   3) Aba vazia ou com estrutura imprevisível
-# Se a aba não existir / estiver vazia / falhar, retorna um DataFrame vazio com
-# as colunas corretas — assim o pd.concat e o conn.update nunca quebram.
 def ler_aba_padronizada(nome_aba, colunas_esperadas):
     try:
         df = conn.read(spreadsheet=url_planilha, worksheet=nome_aba, ttl=0)
@@ -377,44 +286,34 @@ def ler_aba_padronizada(nome_aba, colunas_esperadas):
     if df is None or df.empty:
         return pd.DataFrame(columns=colunas_esperadas)
 
-    # Remove colunas duplicadas mantendo a primeira ocorrência de cada nome
     df = df.loc[:, ~df.columns.duplicated()].copy()
 
-    # Adiciona colunas faltantes como vazias (evita KeyError no concat/update)
     for col in colunas_esperadas:
         if col not in df.columns:
             df[col] = ""
 
-    # Retorna apenas as colunas esperadas, na ordem correta
     return df[colunas_esperadas].copy()
 
-
-# --- CONTROLE DA ABA SECRETA ---
 if "aba_secreta_desbloqueada" not in st.session_state:
     st.session_state["aba_secreta_desbloqueada"] = False
 
-# --- MENU LATERAL ---
 st.sidebar.title("Menu do Sistema")
 st.sidebar.write(f"Usuário: **{st.session_state.get('usuario_logado')}**")
 st.sidebar.write(f"Perfil: **{st.session_state.get('nivel_acesso')}**")
 
 if st.sidebar.button("Sair"):
-    # ATUALIZADO: agora também invalida o token de sessão no servidor,
-    # não só limpa o estado local, para que o link antigo pare de funcionar.
     encerrar_sessao(st.session_state.get("session_token"))
     st.session_state["autenticado"] = False
     st.session_state.pop("usuario_logado", None)
     st.session_state.pop("nivel_acesso", None)
     st.session_state.pop("session_token", None)
     st.session_state["aba_secreta_desbloqueada"] = False
-    st.session_state["menu_navegacao"] = "Cadastro Rápido"  # ADICIONADO: reset do menu ao sair
+    st.session_state["menu_navegacao"] = "Cadastro Rápido"
     st.query_params.clear()
     st.rerun()
 
 st.sidebar.divider()
 
-# Lista dinâmica de abas
-# ATUALIZADO: adicionadas as 4 novas páginas mantendo a aba secreta sempre por último.
 opcoes_menu = [
     "Cadastro Rápido",
     "Controle de Prestadores",
@@ -427,16 +326,13 @@ opcoes_menu = [
 ]
 if st.session_state["aba_secreta_desbloqueada"]:
     opcoes_menu.append("🎮 Sala Secreta: Jogo da Forca")
-    # ADICIONADO: Jogo da Cobrinha liberado junto com a Forca pelo mesmo botão
     opcoes_menu.append("🐍 Sala Secreta: Jogo da Cobrinha")
 
-# Estado padrão do menu (key explícita para permitir reset correto ao sair)
 if "menu_navegacao" not in st.session_state or st.session_state["menu_navegacao"] not in opcoes_menu:
     st.session_state["menu_navegacao"] = opcoes_menu[0]
 
 aba_selecionada = st.sidebar.radio("Navegação", opcoes_menu, key="menu_navegacao")
 
-# BOTÃO INVISÍVEL NA SIDEBAR (libera as DUAS abas secretas: Forca e Cobrinha)
 st.sidebar.markdown('<span id="secret-btn-marker"></span>', unsafe_allow_html=True)
 if st.sidebar.button(" ", key="btn_secreto"):
     st.session_state["aba_secreta_desbloqueada"] = not st.session_state["aba_secreta_desbloqueada"]
@@ -444,7 +340,6 @@ if st.sidebar.button(" ", key="btn_secreto"):
 
 nivel = st.session_state.get("nivel_acesso")
 
-# --- ABA 1: CADASTRO RÁPIDO ---
 if aba_selecionada == "Cadastro Rápido":
     st.title("Cadastro Rápido de Dados")
 
@@ -528,7 +423,6 @@ if aba_selecionada == "Cadastro Rápido":
     except Exception as e:
         st.info("Nenhum dado cadastrado ou erro ao conectar com a guia 'Cadastro Rápido'.")
 
-# --- ABA 2: CONTROLE DE PRESTADORES ---
 elif aba_selecionada == "Controle de Prestadores":
     st.title("Controle de Prestadores de Serviço")
 
@@ -619,7 +513,6 @@ elif aba_selecionada == "Controle de Prestadores":
     except Exception as e:
         st.info("Nenhum prestador cadastrado ou a guia 'Controle de Prestadores' ainda não foi criada no Google Sheets.")
 
-# --- ABA 3: SUBLOCATÁRIOS ---
 elif aba_selecionada == "Sublocatários":
     st.title("Controle de Sublocatários")
 
@@ -733,7 +626,6 @@ elif aba_selecionada == "Sublocatários":
     except Exception as e:
         st.info("Nenhum sublocatário cadastrado ou a guia 'Sublocatários' ainda não foi criada no Google Sheets.")
 
-# --- ABA 4: CONTROLE GERENTES DE LOJA ---
 elif aba_selecionada == "Controle Gerentes de Loja":
     st.title("Controle Gerentes de Loja")
 
@@ -819,13 +711,9 @@ elif aba_selecionada == "Controle Gerentes de Loja":
     except Exception as e:
         st.info("Nenhum gerente cadastrado ou a guia 'Controle Gerentes de Loja' ainda não foi criada no Google Sheets.")
 
-# ==============================================================================
-# NOVA ABA 5: CONTAS DE CONSUMO
-# ==============================================================================
 elif aba_selecionada == "Contas de Consumo":
     st.title("Contas de Consumo")
 
-    # Colunas esperadas nesta aba (ordem exata que deve aparecer na planilha)
     COLUNAS_CC = [
         "Loja", "UF", "Status", "Número do fornecimento",
         "Concessionária energia", "Concessionária água",
@@ -842,7 +730,6 @@ elif aba_selecionada == "Contas de Consumo":
 
             with col1:
                 cc_loja = st.text_input("Loja")
-                # UF: campo limitado a 2 caracteres; convertido para MAIÚSCULO automaticamente.
                 cc_uf = st.text_input("UF (2 letras, ex: SP)", max_chars=2)
                 cc_status = st.text_input("Status")
                 cc_num_fornecimento = st.text_input("Número do fornecimento")
@@ -872,7 +759,6 @@ elif aba_selecionada == "Contas de Consumo":
                 cc_nome, cc_cpf_cnpj, cc_email,
             ]
 
-            # UF convertida automaticamente para MAIÚSCULO (requisito: sempre maiúsculas)
             uf_limpa = cc_uf.strip().upper()
 
             if any(c.strip() == "" for c in campos_cc):
@@ -885,7 +771,6 @@ elif aba_selecionada == "Contas de Consumo":
                 st.error("O campo 'CPF/CNPJ' deve conter apenas números!")
             else:
                 try:
-                    # USA O HELPER: garante DataFrame limpo com colunas corretas
                     df_cc = ler_aba_padronizada("Contas de Consumo", COLUNAS_CC)
 
                     nova_conta = pd.DataFrame(
@@ -912,7 +797,6 @@ elif aba_selecionada == "Contas de Consumo":
                     )
 
                     df_cc_atualizado = pd.concat([df_cc, nova_conta], ignore_index=True)
-                    # Força a ordem exata das colunas antes de escrever
                     df_cc_atualizado = df_cc_atualizado[COLUNAS_CC]
 
                     conn.update(spreadsheet=url_planilha, worksheet="Contas de Consumo", data=df_cc_atualizado)
@@ -957,13 +841,9 @@ elif aba_selecionada == "Contas de Consumo":
     except Exception as e:
         st.info("Nenhuma conta cadastrada ou a guia 'Contas de Consumo' ainda não foi criada no Google Sheets.")
 
-# ==============================================================================
-# NOVA ABA 6: CONTROLE DE ACESSOS
-# ==============================================================================
 elif aba_selecionada == "Controle de Acessos":
     st.title("Controle de Acessos")
 
-    # Colunas esperadas nesta aba (ordem exata)
     COLUNAS_CA = [
         "Loja", "UF", "Status",
         "Concessionária água", "Login água", "Senha água",
@@ -977,18 +857,15 @@ elif aba_selecionada == "Controle de Acessos":
 
             with col1:
                 ca_loja = st.text_input("Loja")
-                # UF: campo limitado a 2 caracteres; convertido para MAIÚSCULO automaticamente.
                 ca_uf = st.text_input("UF (2 letras, ex: SP)", max_chars=2)
                 ca_status = st.text_input("Status")
                 ca_concessionaria_agua = st.text_input("Concessionária água")
                 ca_login_agua = st.text_input("Login água")
-                # Campo de senha com máscara (não exibe os caracteres digitados)
                 ca_senha_agua = st.text_input("Senha água", type="password")
 
             with col2:
                 ca_concessionaria_energia = st.text_input("Concessionária energia")
                 ca_login_energia = st.text_input("Login energia")
-                # Campo de senha com máscara
                 ca_senha_energia = st.text_input("Senha energia", type="password")
 
             btn_salvar_ca = st.form_submit_button("Cadastrar Acesso")
@@ -1008,7 +885,6 @@ elif aba_selecionada == "Controle de Acessos":
                 st.error("O campo 'UF' deve conter exatamente 2 letras maiúsculas (ex: SP, RJ)!")
             else:
                 try:
-                    # USA O HELPER: garante DataFrame limpo com colunas corretas
                     df_ca = ler_aba_padronizada("Controle de Acessos", COLUNAS_CA)
 
                     novo_acesso = pd.DataFrame(
@@ -1073,13 +949,9 @@ elif aba_selecionada == "Controle de Acessos":
     except Exception as e:
         st.info("Nenhum acesso cadastrado ou a guia 'Controle de Acessos' ainda não foi criada no Google Sheets.")
 
-# ==============================================================================
-# NOVA ABA 7: SENHAS CONCESSIONÁRIAS
-# ==============================================================================
 elif aba_selecionada == "Senhas Concessionárias":
     st.title("Senhas Concessionárias")
 
-    # Colunas esperadas nesta aba (ordem exata)
     COLUNAS_SC = [
         "Empresa", "Concessionária", "Login", "Senha", "CNPJ/CPF",
         "Cadastrado Por",
@@ -1095,7 +967,6 @@ elif aba_selecionada == "Senhas Concessionárias":
                 sc_login = st.text_input("Login")
 
             with col2:
-                # Campo de senha com máscara
                 sc_senha = st.text_input("Senha", type="password")
                 sc_cnpj_cpf = st.text_input("CNPJ/CPF")
 
@@ -1108,7 +979,6 @@ elif aba_selecionada == "Senhas Concessionárias":
                 st.error("Por favor, preencha todos os campos do formulário!")
             else:
                 try:
-                    # USA O HELPER: garante DataFrame limpo com colunas corretas
                     df_sc = ler_aba_padronizada("Senhas Concessionárias", COLUNAS_SC)
 
                     nova_senha = pd.DataFrame(
@@ -1169,13 +1039,9 @@ elif aba_selecionada == "Senhas Concessionárias":
     except Exception as e:
         st.info("Nenhuma senha cadastrada ou a guia 'Senhas Concessionárias' ainda não foi criada no Google Sheets.")
 
-# ==============================================================================
-# NOVA ABA 8: ESPAÇOS DISPONÍVEIS
-# ==============================================================================
 elif aba_selecionada == "Espaços Disponíveis":
     st.title("Espaços Disponíveis")
 
-    # Colunas esperadas nesta aba (ordem exata)
     COLUNAS_ESP = [
         "Unidade disponível", "Endereço", "Interno/Externo",
         "Espaço Disp.", "m²", "Pontos de consumo",
@@ -1189,12 +1055,10 @@ elif aba_selecionada == "Espaços Disponíveis":
             with col1:
                 esp_unidade = st.text_input("Unidade disponível")
                 esp_endereco = st.text_input("Endereço")
-                # Selectbox garante que só as opções válidas sejam escolhidas
                 esp_interno_externo = st.selectbox("Interno/Externo", ["Interno", "Externo"])
                 esp_espaco_disp = st.text_input("Espaço Disp.")
 
             with col2:
-                # Campo numérico para m² — apenas números; o sufixo " m²" é aplicado automaticamente ao salvar.
                 esp_metragem = st.number_input(
                     "m² (apenas números)",
                     min_value=0.0,
@@ -1214,10 +1078,8 @@ elif aba_selecionada == "Espaços Disponíveis":
                 st.error("O campo 'm²' deve ser maior que zero!")
             else:
                 try:
-                    # USA O HELPER: garante DataFrame limpo com colunas corretas
                     df_esp = ler_aba_padronizada("Espaços Disponíveis", COLUNAS_ESP)
 
-                    # Adiciona automaticamente o sufixo "m²" ao valor numérico (formatação limpa)
                     metragem_formatada_esp = f"{esp_metragem:g} m²"
 
                     novo_espaco = pd.DataFrame(
@@ -1279,15 +1141,12 @@ elif aba_selecionada == "Espaços Disponíveis":
     except Exception as e:
         st.info("Nenhum espaço cadastrado ou a guia 'Espaços Disponíveis' ainda não foi criada no Google Sheets.")
 
-# --- ABA SECRETA: JOGO DA FORCA ---
 elif aba_selecionada == "🎮 Sala Secreta: Jogo da Forca":
     st.title("🕵️‍♂️ Área Secreta - Jogo da Forca")
     st.write("Parabéns por encontrar o modo secreto! Descanse um pouco e jogue uma partida.")
 
-    # Lista de Palavras secretas
     PALAVRAS_FORCA = ["STREAMLIT", "PYTHON", "GERENTE", "SUBLOCATARIO", "PRESTADOR", "CADASTRO", "SISTEMA", "LOJA", "CONTRATO"]
 
-    # Inicialização das variáveis do jogo
     if "palavra_secreta" not in st.session_state:
         st.session_state["palavra_secreta"] = random.choice(PALAVRAS_FORCA)
         st.session_state["letras_chutadas"] = []
@@ -1298,7 +1157,6 @@ elif aba_selecionada == "🎮 Sala Secreta: Jogo da Forca":
         st.session_state["letras_chutadas"] = []
         st.session_state["tentativas_restantes"] = 6
 
-    # Estágios da Forca em ASCII
     ESTAGIOS_FORCA = [
         """
            +---+
@@ -1365,13 +1223,11 @@ elif aba_selecionada == "🎮 Sala Secreta: Jogo da Forca":
         st.code(ESTAGIOS_FORCA[erros], language="text")
 
     with col_jogo2:
-        # Mostra a palavra oculta
         palavra_exibida = "".join([letra if letra in st.session_state["letras_chutadas"] else " _ " for letra in st.session_state["palavra_secreta"]])
         st.subheader(f"Palavra: {palavra_exibida}")
         st.write(f"Tentativas restantes: **{st.session_state['tentativas_restantes']}**")
         st.write(f"Letras já tentadas: {', '.join(st.session_state['letras_chutadas'])}")
 
-        # Verificação de vitória ou derrota
         ganhou = all(letra in st.session_state["letras_chutadas"] for letra in st.session_state["palavra_secreta"])
         perdeu = st.session_state["tentativas_restantes"] <= 0
 
@@ -1404,10 +1260,6 @@ elif aba_selecionada == "🎮 Sala Secreta: Jogo da Forca":
                 reiniciar_jogo()
                 st.rerun()
 
-# ==============================================================================
-# NOVA ABA SECRETA: JOGO DA COBRINHA
-# (liberada junto com a Forca pelo mesmo botão invisível da sidebar)
-# ==============================================================================
 elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
     st.title("🐍 Área Secreta - Jogo da Cobrinha")
     st.write(
@@ -1416,9 +1268,6 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
         "para dar foco ao jogo."
     )
 
-    # Jogo da Cobrinha completo em HTML5 Canvas + JavaScript, embutido via
-    # components.html. Streamlit não suporta input de teclado em tempo real,
-    # então a forma mais funcional é renderizar o jogo dentro de um iframe.
     SNAKE_HTML = """
 <!DOCTYPE html>
 <html>
@@ -1479,7 +1328,6 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
 
     let snake, dir, nextDir, food, score, high, gameOver, loop;
 
-    // Recorde apenas em memória desta sessão do jogo (não persiste em lugar nenhum)
     high = 0;
     document.getElementById('high').textContent = high;
 
@@ -1545,11 +1393,9 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
     }
 
     function draw() {
-      // Fundo
       ctx.fillStyle = '#262730';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Grid sutil
       ctx.strokeStyle = 'rgba(255, 216, 15, 0.08)';
       ctx.lineWidth = 1;
       for (let i = 0; i <= cols; i++) {
@@ -1563,13 +1409,11 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
         ctx.stroke();
       }
 
-      // Comida
       ctx.fillStyle = '#7B2CBF';
       ctx.beginPath();
       ctx.arc(food.x * box + box / 2, food.y * box + box / 2, box / 2 - 2, 0, Math.PI * 2);
       ctx.fill();
 
-      // Cobra
       snake.forEach((s, i) => {
         if (i === 0) {
           ctx.fillStyle = '#FFD80F';
@@ -1581,7 +1425,6 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
       });
     }
 
-    // Controles: setas do teclado. Previne scroll da página quando usadas.
     window.addEventListener('keydown', function (e) {
       const k = e.key;
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].indexOf(k) !== -1) {
@@ -1593,7 +1436,6 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
       else if (k === 'ArrowRight' && dir.x === 0) nextDir = {x: 1, y: 0};
     });
 
-    // Garante foco no canvas (necessário para o iframe receber teclado)
     canvas.addEventListener('click', function () { canvas.focus(); });
     window.addEventListener('load', function () { canvas.focus(); });
 
@@ -1604,6 +1446,4 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
 </html>
 """
 
-    # Renderiza o jogo dentro de um iframe. Altura suficiente para caber o
-    # tabuleiro, os placares e o botão de reinício.
     components.html(SNAKE_HTML, height=620, scrolling=False)
