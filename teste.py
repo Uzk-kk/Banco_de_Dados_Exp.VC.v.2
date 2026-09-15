@@ -6,6 +6,31 @@
 # Data de Criação: Set/2026
 # ==============================================================================
 
+# ==============================================================================
+# BLOCO DE SEGURANÇA - AUTENTICAÇÃO E SESSÃO
+# ==============================================================================
+#
+# COMO CONFIGURAR OS USUÁRIOS (st.secrets):
+# No arquivo .streamlit/secrets.toml (local) OU em "Settings > Secrets" no painel
+# do Streamlit Cloud, cadastre os usuários usando SENHA EM HASH, nunca em texto puro:
+#
+#   [USUARIOS.admin]
+#   senha = "COLE_AQUI_O_HASH_GERADO"
+#   nivel = "Admin"
+#
+# COMO GERAR O HASH DE UMA SENHA:
+# Rode este trecho uma única vez (no terminal, num arquivo .py separado, ou até
+# aqui mesmo comentando a linha st.stop() abaixo temporariamente) e copie o
+# resultado para o secrets.toml:
+#
+#   import hashlib
+#   print(hashlib.sha256("SUA_SENHA_AQUI".strip().encode("utf-8")).hexdigest())
+#
+# IMPORTANTE: como as senhas no secrets.toml agora precisam ser o HASH (e não
+# mais a senha em texto puro), você precisa gerar o hash de cada senha existente
+# e atualizar o secrets.toml antes de fazer login novamente.
+# ==============================================================================
+
 import datetime
 import random
 import secrets  
