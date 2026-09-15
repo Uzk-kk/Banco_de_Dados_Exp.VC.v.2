@@ -4,9 +4,8 @@
 # Propriedade Intelectual e Desenvolvimento: Raphael Santos
 # Licença: Uso Exclusivo Autorizado - Proibida Replicação ou Alteração sem Autorização
 # Data de Criação: Set/2026
-# Atualização: Set/2026 (Jogo da Cobrinha como aba secreta. Botão invisível no
-#              topo da sidebar (3 cliques) para desbloquear. Recorde do jogador
-#              persistido por usuário na aba "Recordes" do Google Sheets.)
+# Atualização: Set/2026 (adição do Jogo da Cobrinha como segunda aba secreta,
+#              liberada pelo mesmo botão invisível da Forca)
 # ==============================================================================
 
 import datetime
@@ -71,7 +70,7 @@ st.markdown(
         color: #FFFFFF !important; 
     }
     
-    /* BOTÃO SECRETO INVISÍVEL NA SIDEBAR (usado pela Forca, na parte de baixo) */
+    /* BOTÃO SECRETO INVISÍVEL NA SIDEBAR */
     div.element-container:has(#secret-btn-marker) + div.element-container button {
         background-color: transparent !important;
         border: none !important;
@@ -87,32 +86,6 @@ st.markdown(
         background-color: transparent !important;
         color: transparent !important;
         border: none !important;
-    }
-
-    /* ========================================================================
-       BOTÃO INVISÍVEL DO JOGO DA COBRINHA
-       Fica no TOPO da sidebar, totalmente transparente. Ao clicar 3x nele,
-       o Jogo da Cobrinha é desbloqueado (a palavra "Menu do Sistema" abaixo
-       permanece como texto puro, sem virar botão).
-       ======================================================================== */
-    div[data-testid="stSidebar"] div.element-container:has(#snake-btn-marker) + div.element-container button {
-        background-color: transparent !important;
-        border: none !important;
-        color: transparent !important;
-        box-shadow: none !important;
-        height: 40px !important;
-        width: 100% !important;
-        padding: 0 !important;
-        margin: 0 !important;
-        cursor: default !important;
-    }
-    div[data-testid="stSidebar"] div.element-container:has(#snake-btn-marker) + div.element-container button:hover,
-    div[data-testid="stSidebar"] div.element-container:has(#snake-btn-marker) + div.element-container button:focus,
-    div[data-testid="stSidebar"] div.element-container:has(#snake-btn-marker) + div.element-container button:active {
-        background-color: transparent !important;
-        border: none !important;
-        color: transparent !important;
-        box-shadow: none !important;
     }
 
     /* BOTÃO RADIO (Navegação no Menu Lateral - Seleção em Amarelo) */
@@ -416,81 +389,11 @@ def ler_aba_padronizada(nome_aba, colunas_esperadas):
     return df[colunas_esperadas].copy()
 
 
-# ==============================================================================
-# PROCESSAMENTO DO PARÂMETRO "snake_record" (JOGO DA COBRINHA)
-# ==============================================================================
-# Quando o jogador bate o próprio recorde no Jogo da Cobrinha e clica em
-# "Reiniciar", o iframe do jogo redireciona o navegador para a mesma URL
-# adicionando ?snake_record=N. Esse bloco lê o valor, grava/atualiza o recorde
-# do usuário logado na aba "Recordes" e limpa o parâmetro da URL (mantendo o
-# token de sessão). Em seguida, marca para abrir automaticamente a aba do jogo
-# no próximo rerun.
-if "snake_record" in st.query_params and st.session_state.get("autenticado"):
-    try:
-        novo_recorde = int(str(st.query_params["snake_record"]))
-    except (ValueError, TypeError):
-        novo_recorde = 0
-
-    if novo_recorde > 0:
-        usuario_atual_rec = st.session_state.get("usuario_logado", "")
-        if usuario_atual_rec:
-            try:
-                df_rec = ler_aba_padronizada("Recordes", ["Usuário", "Jogo", "Recorde"])
-                mask_rec = (df_rec["Usuário"] == usuario_atual_rec) & (df_rec["Jogo"] == "Cobrinha")
-                if mask_rec.any():
-                    valor_atual_str = str(df_rec.loc[mask_rec, "Recorde"].values[0]).strip()
-                    try:
-                        atual_int = int(valor_atual_str) if valor_atual_str.isdigit() else 0
-                    except (ValueError, TypeError):
-                        atual_int = 0
-                    if novo_recorde > atual_int:
-                        df_rec.loc[mask_rec, "Recorde"] = novo_recorde
-                        conn.update(spreadsheet=url_planilha, worksheet="Recordes", data=df_rec)
-                else:
-                    nova_linha = pd.DataFrame([{
-                        "Usuário": usuario_atual_rec,
-                        "Jogo": "Cobrinha",
-                        "Recorde": novo_recorde,
-                    }])
-                    df_rec = pd.concat([df_rec, nova_linha], ignore_index=True)
-                    conn.update(spreadsheet=url_planilha, worksheet="Recordes", data=df_rec)
-            except Exception:
-                # Se a aba "Recordes" não existir, apenas ignora silenciosamente.
-                pass
-
-    # Limpa o parâmetro da URL preservando o token de sessão (se existir)
-    token_url_atual = st.query_params.get("session")
-    st.query_params.clear()
-    if token_url_atual:
-        st.query_params["session"] = token_url_atual
-
-    # Faz o app reabrir automaticamente na aba da Cobrinha após o rerun
-    st.session_state["auto_open_snake"] = True
-    st.rerun()
-
-
 # --- CONTROLE DA ABA SECRETA ---
 if "aba_secreta_desbloqueada" not in st.session_state:
     st.session_state["aba_secreta_desbloqueada"] = False
 
-# ADICIONADO: controle da aba secreta do Jogo da Cobrinha (desbloqueada ao
-# clicar 3 vezes no botão invisível no topo da sidebar).
-if "aba_cobra_desbloqueada" not in st.session_state:
-    st.session_state["aba_cobra_desbloqueada"] = False
-if "snake_click_count" not in st.session_state:
-    st.session_state["snake_click_count"] = 0
-
 # --- MENU LATERAL ---
-# BOTÃO INVISÍVEL: fica no topo da sidebar. Ao clicar 3 vezes nele, o Jogo da
-# Cobrinha é desbloqueado. A palavra "Menu do Sistema" abaixo permanece texto puro.
-st.sidebar.markdown('<span id="snake-btn-marker"></span>', unsafe_allow_html=True)
-if st.sidebar.button(" ", key="btn_unlock_snake"):
-    st.session_state["snake_click_count"] = st.session_state.get("snake_click_count", 0) + 1
-    if st.session_state["snake_click_count"] >= 3:
-        st.session_state["aba_cobra_desbloqueada"] = True
-        st.session_state["snake_click_count"] = 0
-    st.rerun()
-
 st.sidebar.title("Menu do Sistema")
 st.sidebar.write(f"Usuário: **{st.session_state.get('usuario_logado')}**")
 st.sidebar.write(f"Perfil: **{st.session_state.get('nivel_acesso')}**")
@@ -504,15 +407,14 @@ if st.sidebar.button("Sair"):
     st.session_state.pop("nivel_acesso", None)
     st.session_state.pop("session_token", None)
     st.session_state["aba_secreta_desbloqueada"] = False
-    st.session_state["aba_cobra_desbloqueada"] = False  # ADICIONADO: relock ao sair
-    st.session_state["snake_click_count"] = 0           # ADICIONADO: reseta contador ao sair
-    st.session_state["menu_navegacao"] = "Cadastro Rápido"  # ADICIONADO: volta pro início
+    st.session_state["menu_navegacao"] = "Cadastro Rápido"  # ADICIONADO: reset do menu ao sair
     st.query_params.clear()
     st.rerun()
 
 st.sidebar.divider()
 
 # Lista dinâmica de abas
+# ATUALIZADO: adicionadas as 4 novas páginas mantendo a aba secreta sempre por último.
 opcoes_menu = [
     "Cadastro Rápido",
     "Controle de Prestadores",
@@ -525,25 +427,16 @@ opcoes_menu = [
 ]
 if st.session_state["aba_secreta_desbloqueada"]:
     opcoes_menu.append("🎮 Sala Secreta: Jogo da Forca")
-# ADICIONADO: Jogo da Cobrinha como nova aba secreta
-if st.session_state["aba_cobra_desbloqueada"]:
+    # ADICIONADO: Jogo da Cobrinha liberado junto com a Forca pelo mesmo botão
     opcoes_menu.append("🐍 Sala Secreta: Jogo da Cobrinha")
 
-# Estado padrão do menu (usa key explícita para permitir redirecionamento
-# automático para a aba da Cobrinha depois de salvar um novo recorde)
+# Estado padrão do menu (key explícita para permitir reset correto ao sair)
 if "menu_navegacao" not in st.session_state or st.session_state["menu_navegacao"] not in opcoes_menu:
     st.session_state["menu_navegacao"] = opcoes_menu[0]
 
-if st.session_state.get("auto_open_snake"):
-    st.session_state["auto_open_snake"] = False
-    for opt in opcoes_menu:
-        if "Cobrinha" in opt:
-            st.session_state["menu_navegacao"] = opt
-            break
-
 aba_selecionada = st.sidebar.radio("Navegação", opcoes_menu, key="menu_navegacao")
 
-# BOTÃO INVISÍVEL NA SIDEBAR (desbloqueia a Forca — permanece na parte de baixo)
+# BOTÃO INVISÍVEL NA SIDEBAR (libera as DUAS abas secretas: Forca e Cobrinha)
 st.sidebar.markdown('<span id="secret-btn-marker"></span>', unsafe_allow_html=True)
 if st.sidebar.button(" ", key="btn_secreto"):
     st.session_state["aba_secreta_desbloqueada"] = not st.session_state["aba_secreta_desbloqueada"]
@@ -1512,7 +1405,8 @@ elif aba_selecionada == "🎮 Sala Secreta: Jogo da Forca":
                 st.rerun()
 
 # ==============================================================================
-# NOVA ABA SECRETA: JOGO DA COBRINHA (desbloqueado com 3 cliques no topo da sidebar)
+# NOVA ABA SECRETA: JOGO DA COBRINHA
+# (liberada junto com a Forca pelo mesmo botão invisível da sidebar)
 # ==============================================================================
 elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
     st.title("🐍 Área Secreta - Jogo da Cobrinha")
@@ -1522,27 +1416,9 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
         "para dar foco ao jogo."
     )
 
-    # Lê o recorde atual do usuário logado na aba "Recordes"
-    usuario_atual_snake = st.session_state.get("usuario_logado", "")
-    recorde_atual = 0
-    try:
-        df_rec_view = ler_aba_padronizada("Recordes", ["Usuário", "Jogo", "Recorde"])
-        mask_rec_view = (df_rec_view["Usuário"] == usuario_atual_snake) & (df_rec_view["Jogo"] == "Cobrinha")
-        if mask_rec_view.any():
-            valor_str_rec = str(df_rec_view.loc[mask_rec_view, "Recorde"].values[0]).strip()
-            if valor_str_rec.isdigit():
-                recorde_atual = int(valor_str_rec)
-    except Exception:
-        recorde_atual = 0
-
-    st.write(f"🏆 Seu recorde atual: **{recorde_atual}** pontos")
-
     # Jogo da Cobrinha completo em HTML5 Canvas + JavaScript, embutido via
     # components.html. Streamlit não suporta input de teclado em tempo real,
-    # então o jeito mais limpo e funcional de ter um Snake de verdade é
-    # renderizar o jogo dentro de um iframe.
-    # O placeholder __RECORDE_ATUAL__ é substituído pelo recorde do usuário
-    # logo abaixo (via str.replace), evitando escapes de chaves em f-strings.
+    # então a forma mais funcional é renderizar o jogo dentro de um iframe.
     SNAKE_HTML = """
 <!DOCTYPE html>
 <html>
@@ -1589,9 +1465,9 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
 <body>
   <h2>🐍 Jogo da Cobrinha</h2>
   <canvas id="game" width="400" height="400" tabindex="0"></canvas>
-  <div class="info">Pontos: <span id="score">0</span> &nbsp;|&nbsp; Recorde: <span id="high">0</span></div>
+  <div class="info">Pontos: <span id="score">0</span> &nbsp;|&nbsp; Recorde desta sessão: <span id="high">0</span></div>
   <div class="status" id="status">Use as setas ⬆ ⬇ ⬅ ➡ para jogar</div>
-  <button onclick="userRestart()">🔄 Reiniciar</button>
+  <button onclick="resetGame()">🔄 Reiniciar</button>
 
   <script>
   (function () {
@@ -1601,16 +1477,10 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
     const cols = canvas.width / box;
     const rows = canvas.height / box;
 
-    // Recorde atual do usuário (vindo do Streamlit via placeholder substituído)
-    let currentBest = __RECORDE_ATUAL__;
-
     let snake, dir, nextDir, food, score, high, gameOver, loop;
-    // Flag: sinaliza que o jogador bateu o recorde atual nesta partida.
-    // Se estiver true e o usuário clicar em "Reiniciar", redirecionamos a
-    // página para salvar o novo recorde na planilha (via ?snake_record=N).
-    let pendingNewRecord = false;
 
-    high = currentBest;
+    // Recorde apenas em memória desta sessão do jogo (não persiste em lugar nenhum)
+    high = 0;
     document.getElementById('high').textContent = high;
 
     function placeFood() {
@@ -1630,7 +1500,6 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
       nextDir = {x: 1, y: 0};
       score = 0;
       gameOver = false;
-      pendingNewRecord = false;
       document.getElementById('score').textContent = '0';
       document.getElementById('status').textContent = 'Use as setas ⬆ ⬇ ⬅ ➡ para jogar';
       placeFood();
@@ -1638,24 +1507,6 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
       loop = setInterval(tick, 110);
       draw();
       canvas.focus();
-    }
-
-    // Chamado pelo botão "Reiniciar":
-    // - Se houve novo recorde nesta partida, salva via redirect (a página recarrega
-    //   e o Streamlit grava na planilha antes de voltar para esta aba).
-    // - Caso contrário, apenas reinicia a partida normalmente.
-    function userRestart() {
-      if (pendingNewRecord && score > 0) {
-        try {
-          const url = new URL(window.parent.location.href);
-          url.searchParams.set('snake_record', score);
-          window.parent.location.href = url.toString();
-          return;
-        } catch (e) {
-          // Se por algum motivo não conseguir redirecionar, segue com reset normal
-        }
-      }
-      resetGame();
     }
 
     function tick() {
@@ -1674,11 +1525,9 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
         if (score > high) {
           high = score;
           document.getElementById('high').textContent = high;
-          pendingNewRecord = true;
         }
         document.getElementById('status').textContent =
-          '☠️ Game Over! Pontuação final: ' + score +
-          (pendingNewRecord ? ' — 🏆 Novo recorde! Clique em Reiniciar para salvar.' : '');
+          '☠️ Game Over! Pontuação final: ' + score;
         return;
       }
 
@@ -1754,9 +1603,6 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
 </body>
 </html>
 """
-
-    # Injeta o recorde atual do usuário no HTML (evita escapar chaves em f-string)
-    SNAKE_HTML = SNAKE_HTML.replace("__RECORDE_ATUAL__", str(recorde_atual))
 
     # Renderiza o jogo dentro de um iframe. Altura suficiente para caber o
     # tabuleiro, os placares e o botão de reinício.
