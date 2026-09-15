@@ -7,6 +7,8 @@
 # Atualização de Segurança: Set/2026 (token de sessão, hash de senha, rate limiting)
 # Atualização: Set/2026 (adição das páginas: Contas de Consumo, Controle de Acessos,
 #              Senhas Concessionárias e Espaços Disponíveis)
+# Correção: Set/2026 (helper de leitura padronizada das abas para evitar erro
+#           "WorksheetNotFound" e colunas duplicadas nas novas páginas)
 # ==============================================================================
 
 import datetime
@@ -357,6 +359,37 @@ if not st.session_state["autenticado"]:
 # --- CONEXÃO COM O GOOGLE SHEETS ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 url_planilha = st.secrets["connections"]["gsheets"]["spreadsheet"]
+
+# ==============================================================================
+# HELPER: LEITURA PADRONIZADA DAS ABAS
+# ==============================================================================
+# Lê uma aba e devolve um DataFrame com EXATAMENTE as colunas esperadas, na ordem
+# correta. Isso resolve 3 problemas comuns que estavam quebrando as novas abas:
+#   1) Aba com colunas duplicadas (ex: lixo de execuções/cópias anteriores)
+#   2) Aba com colunas em ordem diferente
+#   3) Aba vazia ou com estrutura imprevisível
+# Se a aba não existir / estiver vazia / falhar, retorna um DataFrame vazio com
+# as colunas corretas — assim o pd.concat e o conn.update nunca quebram.
+def ler_aba_padronizada(nome_aba, colunas_esperadas):
+    try:
+        df = conn.read(spreadsheet=url_planilha, worksheet=nome_aba, ttl=0)
+    except Exception:
+        return pd.DataFrame(columns=colunas_esperadas)
+
+    if df is None or df.empty:
+        return pd.DataFrame(columns=colunas_esperadas)
+
+    # Remove colunas duplicadas mantendo a primeira ocorrência de cada nome
+    df = df.loc[:, ~df.columns.duplicated()].copy()
+
+    # Adiciona colunas faltantes como vazias (evita KeyError no concat/update)
+    for col in colunas_esperadas:
+        if col not in df.columns:
+            df[col] = ""
+
+    # Retorna apenas as colunas esperadas, na ordem correta
+    return df[colunas_esperadas].copy()
+
 
 # --- CONTROLE DA ABA SECRETA ---
 if "aba_secreta_desbloqueada" not in st.session_state:
@@ -787,13 +820,24 @@ elif aba_selecionada == "Controle Gerentes de Loja":
 elif aba_selecionada == "Contas de Consumo":
     st.title("Contas de Consumo")
 
+    # Colunas esperadas nesta aba (ordem exata que deve aparecer na planilha)
+    COLUNAS_CC = [
+        "Loja", "UF", "Status", "Número do fornecimento",
+        "Concessionária energia", "Concessionária água",
+        "Número de instalação energia", "Número de instalação água",
+        "Telefone", "Documento do titular",
+        "Protocolo energia", "Protocolo água",
+        "Nome", "CPF/CNPJ", "E-mail",
+        "Cadastrado Por",
+    ]
+
     if nivel in ["Editor", "Admin"]:
         with st.form("form_contas_consumo", clear_on_submit=True):
             col1, col2 = st.columns(2)
 
             with col1:
                 cc_loja = st.text_input("Loja")
-                # UF: campo limitado a 2 caracteres; é convertido para MAIÚSCULO automaticamente.
+                # UF: campo limitado a 2 caracteres; convertido para MAIÚSCULO automaticamente.
                 cc_uf = st.text_input("UF (2 letras, ex: SP)", max_chars=2)
                 cc_status = st.text_input("Status")
                 cc_num_fornecimento = st.text_input("Número do fornecimento")
@@ -814,7 +858,6 @@ elif aba_selecionada == "Contas de Consumo":
             btn_salvar_cc = st.form_submit_button("Cadastrar Conta de Consumo")
 
         if btn_salvar_cc:
-            # Lista de todos os campos obrigatórios (todos devem ser preenchidos)
             campos_cc = [
                 cc_loja, cc_uf, cc_status, cc_num_fornecimento,
                 cc_concessionaria_energia, cc_concessionaria_agua,
@@ -837,7 +880,8 @@ elif aba_selecionada == "Contas de Consumo":
                 st.error("O campo 'CPF/CNPJ' deve conter apenas números!")
             else:
                 try:
-                    df_cc = conn.read(spreadsheet=url_planilha, worksheet="Contas de Consumo", ttl=0)
+                    # USA O HELPER: garante DataFrame limpo com colunas corretas
+                    df_cc = ler_aba_padronizada("Contas de Consumo", COLUNAS_CC)
 
                     nova_conta = pd.DataFrame(
                         [
@@ -863,6 +907,9 @@ elif aba_selecionada == "Contas de Consumo":
                     )
 
                     df_cc_atualizado = pd.concat([df_cc, nova_conta], ignore_index=True)
+                    # Força a ordem exata das colunas antes de escrever
+                    df_cc_atualizado = df_cc_atualizado[COLUNAS_CC]
+
                     conn.update(spreadsheet=url_planilha, worksheet="Contas de Consumo", data=df_cc_atualizado)
 
                     st.success("Conta de consumo cadastrada com sucesso!")
@@ -876,7 +923,7 @@ elif aba_selecionada == "Contas de Consumo":
     st.subheader("Visualização do Banco de Dados - Contas de Consumo")
 
     try:
-        df_cc_view = conn.read(spreadsheet=url_planilha, worksheet="Contas de Consumo", ttl=0)
+        df_cc_view = ler_aba_padronizada("Contas de Consumo", COLUNAS_CC)
 
         if nivel == "Admin" and not df_cc_view.empty:
             st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
@@ -910,6 +957,14 @@ elif aba_selecionada == "Contas de Consumo":
 # ==============================================================================
 elif aba_selecionada == "Controle de Acessos":
     st.title("Controle de Acessos")
+
+    # Colunas esperadas nesta aba (ordem exata)
+    COLUNAS_CA = [
+        "Loja", "UF", "Status",
+        "Concessionária água", "Login água", "Senha água",
+        "Concessionária energia", "Login energia", "Senha energia",
+        "Cadastrado Por",
+    ]
 
     if nivel in ["Editor", "Admin"]:
         with st.form("form_controle_acessos", clear_on_submit=True):
@@ -948,7 +1003,8 @@ elif aba_selecionada == "Controle de Acessos":
                 st.error("O campo 'UF' deve conter exatamente 2 letras maiúsculas (ex: SP, RJ)!")
             else:
                 try:
-                    df_ca = conn.read(spreadsheet=url_planilha, worksheet="Controle de Acessos", ttl=0)
+                    # USA O HELPER: garante DataFrame limpo com colunas corretas
+                    df_ca = ler_aba_padronizada("Controle de Acessos", COLUNAS_CA)
 
                     novo_acesso = pd.DataFrame(
                         [
@@ -968,6 +1024,8 @@ elif aba_selecionada == "Controle de Acessos":
                     )
 
                     df_ca_atualizado = pd.concat([df_ca, novo_acesso], ignore_index=True)
+                    df_ca_atualizado = df_ca_atualizado[COLUNAS_CA]
+
                     conn.update(spreadsheet=url_planilha, worksheet="Controle de Acessos", data=df_ca_atualizado)
 
                     st.success("Acesso cadastrado com sucesso!")
@@ -981,7 +1039,7 @@ elif aba_selecionada == "Controle de Acessos":
     st.subheader("Visualização do Banco de Dados - Controle de Acessos")
 
     try:
-        df_ca_view = conn.read(spreadsheet=url_planilha, worksheet="Controle de Acessos", ttl=0)
+        df_ca_view = ler_aba_padronizada("Controle de Acessos", COLUNAS_CA)
 
         if nivel == "Admin" and not df_ca_view.empty:
             st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
@@ -1016,6 +1074,12 @@ elif aba_selecionada == "Controle de Acessos":
 elif aba_selecionada == "Senhas Concessionárias":
     st.title("Senhas Concessionárias")
 
+    # Colunas esperadas nesta aba (ordem exata)
+    COLUNAS_SC = [
+        "Empresa", "Concessionária", "Login", "Senha", "CNPJ/CPF",
+        "Cadastrado Por",
+    ]
+
     if nivel in ["Editor", "Admin"]:
         with st.form("form_senhas_concessionarias", clear_on_submit=True):
             col1, col2 = st.columns(2)
@@ -1039,7 +1103,8 @@ elif aba_selecionada == "Senhas Concessionárias":
                 st.error("Por favor, preencha todos os campos do formulário!")
             else:
                 try:
-                    df_sc = conn.read(spreadsheet=url_planilha, worksheet="Senhas Concessionárias", ttl=0)
+                    # USA O HELPER: garante DataFrame limpo com colunas corretas
+                    df_sc = ler_aba_padronizada("Senhas Concessionárias", COLUNAS_SC)
 
                     nova_senha = pd.DataFrame(
                         [
@@ -1055,6 +1120,8 @@ elif aba_selecionada == "Senhas Concessionárias":
                     )
 
                     df_sc_atualizado = pd.concat([df_sc, nova_senha], ignore_index=True)
+                    df_sc_atualizado = df_sc_atualizado[COLUNAS_SC]
+
                     conn.update(spreadsheet=url_planilha, worksheet="Senhas Concessionárias", data=df_sc_atualizado)
 
                     st.success("Senha cadastrada com sucesso!")
@@ -1068,7 +1135,7 @@ elif aba_selecionada == "Senhas Concessionárias":
     st.subheader("Visualização do Banco de Dados - Senhas Concessionárias")
 
     try:
-        df_sc_view = conn.read(spreadsheet=url_planilha, worksheet="Senhas Concessionárias", ttl=0)
+        df_sc_view = ler_aba_padronizada("Senhas Concessionárias", COLUNAS_SC)
 
         if nivel == "Admin" and not df_sc_view.empty:
             st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
@@ -1103,6 +1170,13 @@ elif aba_selecionada == "Senhas Concessionárias":
 elif aba_selecionada == "Espaços Disponíveis":
     st.title("Espaços Disponíveis")
 
+    # Colunas esperadas nesta aba (ordem exata)
+    COLUNAS_ESP = [
+        "Unidade disponível", "Endereço", "Interno/Externo",
+        "Espaço Disp.", "m²", "Pontos de consumo",
+        "Cadastrado Por",
+    ]
+
     if nivel in ["Editor", "Admin"]:
         with st.form("form_espacos_disponiveis", clear_on_submit=True):
             col1, col2 = st.columns(2)
@@ -1135,7 +1209,8 @@ elif aba_selecionada == "Espaços Disponíveis":
                 st.error("O campo 'm²' deve ser maior que zero!")
             else:
                 try:
-                    df_esp = conn.read(spreadsheet=url_planilha, worksheet="Espaços Disponíveis", ttl=0)
+                    # USA O HELPER: garante DataFrame limpo com colunas corretas
+                    df_esp = ler_aba_padronizada("Espaços Disponíveis", COLUNAS_ESP)
 
                     # Adiciona automaticamente o sufixo "m²" ao valor numérico (formatação limpa)
                     metragem_formatada_esp = f"{esp_metragem:g} m²"
@@ -1155,6 +1230,8 @@ elif aba_selecionada == "Espaços Disponíveis":
                     )
 
                     df_esp_atualizado = pd.concat([df_esp, novo_espaco], ignore_index=True)
+                    df_esp_atualizado = df_esp_atualizado[COLUNAS_ESP]
+
                     conn.update(spreadsheet=url_planilha, worksheet="Espaços Disponíveis", data=df_esp_atualizado)
 
                     st.success("Espaço disponível cadastrado com sucesso!")
@@ -1168,7 +1245,7 @@ elif aba_selecionada == "Espaços Disponíveis":
     st.subheader("Visualização do Banco de Dados - Espaços Disponíveis")
 
     try:
-        df_esp_view = conn.read(spreadsheet=url_planilha, worksheet="Espaços Disponíveis", ttl=0)
+        df_esp_view = ler_aba_padronizada("Espaços Disponíveis", COLUNAS_ESP)
 
         if nivel == "Admin" and not df_esp_view.empty:
             st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
