@@ -4,8 +4,9 @@
 # Propriedade Intelectual e Desenvolvimento: Raphael Santos
 # Licença: Uso Exclusivo Autorizado - Proibida Replicação ou Alteração sem Autorização
 # Data de Criação: Set/2026
-# Atualização: Set/2026 (adicionado Jogo da Cobrinha como aba secreta,
-#              desbloqueado ao clicar 3x no título "Menu do Sistema" na sidebar)
+# Atualização: Set/2026 (Jogo da Cobrinha como aba secreta. Botão invisível no
+#              topo da sidebar (3 cliques) para desbloquear. Recorde do jogador
+#              persistido por usuário na aba "Recordes" do Google Sheets.)
 # ==============================================================================
 
 import datetime
@@ -70,7 +71,7 @@ st.markdown(
         color: #FFFFFF !important; 
     }
     
-    /* BOTÃO SECRETO INVISÍVEL NA SIDEBAR */
+    /* BOTÃO SECRETO INVISÍVEL NA SIDEBAR (usado pela Forca, na parte de baixo) */
     div.element-container:has(#secret-btn-marker) + div.element-container button {
         background-color: transparent !important;
         border: none !important;
@@ -89,37 +90,29 @@ st.markdown(
     }
 
     /* ========================================================================
-       BOTÃO-TÍTULO "Menu do Sistema" (desbloqueia o Jogo da Cobrinha com 3 cliques)
-       O botão é estilizado para parecer exatamente o título original da sidebar.
+       BOTÃO INVISÍVEL DO JOGO DA COBRINHA
+       Fica no TOPO da sidebar, totalmente transparente. Ao clicar 3x nele,
+       o Jogo da Cobrinha é desbloqueado (a palavra "Menu do Sistema" abaixo
+       permanece como texto puro, sem virar botão).
        ======================================================================== */
-    div[data-testid="stSidebar"] div.element-container:has(#snake-s-marker) + div.element-container button {
+    div[data-testid="stSidebar"] div.element-container:has(#snake-btn-marker) + div.element-container button {
         background-color: transparent !important;
         border: none !important;
+        color: transparent !important;
         box-shadow: none !important;
-        color: #FFD80F !important;
-        text-align: left !important;
-        justify-content: flex-start !important;
+        height: 40px !important;
+        width: 100% !important;
         padding: 0 !important;
         margin: 0 !important;
-        width: 100% !important;
-        height: auto !important;
-        min-height: 0 !important;
-        line-height: 1.2 !important;
+        cursor: default !important;
     }
-    div[data-testid="stSidebar"] div.element-container:has(#snake-s-marker) + div.element-container button:hover,
-    div[data-testid="stSidebar"] div.element-container:has(#snake-s-marker) + div.element-container button:focus,
-    div[data-testid="stSidebar"] div.element-container:has(#snake-s-marker) + div.element-container button:active {
+    div[data-testid="stSidebar"] div.element-container:has(#snake-btn-marker) + div.element-container button:hover,
+    div[data-testid="stSidebar"] div.element-container:has(#snake-btn-marker) + div.element-container button:focus,
+    div[data-testid="stSidebar"] div.element-container:has(#snake-btn-marker) + div.element-container button:active {
         background-color: transparent !important;
         border: none !important;
+        color: transparent !important;
         box-shadow: none !important;
-        color: #FFD80F !important;
-    }
-    div[data-testid="stSidebar"] div.element-container:has(#snake-s-marker) + div.element-container button p {
-        color: #FFD80F !important;
-        font-weight: bold !important;
-        font-size: 1.75rem !important;
-        text-align: left !important;
-        margin: 0 !important;
     }
 
     /* BOTÃO RADIO (Navegação no Menu Lateral - Seleção em Amarelo) */
@@ -423,30 +416,82 @@ def ler_aba_padronizada(nome_aba, colunas_esperadas):
     return df[colunas_esperadas].copy()
 
 
+# ==============================================================================
+# PROCESSAMENTO DO PARÂMETRO "snake_record" (JOGO DA COBRINHA)
+# ==============================================================================
+# Quando o jogador bate o próprio recorde no Jogo da Cobrinha e clica em
+# "Reiniciar", o iframe do jogo redireciona o navegador para a mesma URL
+# adicionando ?snake_record=N. Esse bloco lê o valor, grava/atualiza o recorde
+# do usuário logado na aba "Recordes" e limpa o parâmetro da URL (mantendo o
+# token de sessão). Em seguida, marca para abrir automaticamente a aba do jogo
+# no próximo rerun.
+if "snake_record" in st.query_params and st.session_state.get("autenticado"):
+    try:
+        novo_recorde = int(str(st.query_params["snake_record"]))
+    except (ValueError, TypeError):
+        novo_recorde = 0
+
+    if novo_recorde > 0:
+        usuario_atual_rec = st.session_state.get("usuario_logado", "")
+        if usuario_atual_rec:
+            try:
+                df_rec = ler_aba_padronizada("Recordes", ["Usuário", "Jogo", "Recorde"])
+                mask_rec = (df_rec["Usuário"] == usuario_atual_rec) & (df_rec["Jogo"] == "Cobrinha")
+                if mask_rec.any():
+                    valor_atual_str = str(df_rec.loc[mask_rec, "Recorde"].values[0]).strip()
+                    try:
+                        atual_int = int(valor_atual_str) if valor_atual_str.isdigit() else 0
+                    except (ValueError, TypeError):
+                        atual_int = 0
+                    if novo_recorde > atual_int:
+                        df_rec.loc[mask_rec, "Recorde"] = novo_recorde
+                        conn.update(spreadsheet=url_planilha, worksheet="Recordes", data=df_rec)
+                else:
+                    nova_linha = pd.DataFrame([{
+                        "Usuário": usuario_atual_rec,
+                        "Jogo": "Cobrinha",
+                        "Recorde": novo_recorde,
+                    }])
+                    df_rec = pd.concat([df_rec, nova_linha], ignore_index=True)
+                    conn.update(spreadsheet=url_planilha, worksheet="Recordes", data=df_rec)
+            except Exception:
+                # Se a aba "Recordes" não existir, apenas ignora silenciosamente.
+                pass
+
+    # Limpa o parâmetro da URL preservando o token de sessão (se existir)
+    token_url_atual = st.query_params.get("session")
+    st.query_params.clear()
+    if token_url_atual:
+        st.query_params["session"] = token_url_atual
+
+    # Faz o app reabrir automaticamente na aba da Cobrinha após o rerun
+    st.session_state["auto_open_snake"] = True
+    st.rerun()
+
+
 # --- CONTROLE DA ABA SECRETA ---
 if "aba_secreta_desbloqueada" not in st.session_state:
     st.session_state["aba_secreta_desbloqueada"] = False
 
 # ADICIONADO: controle da aba secreta do Jogo da Cobrinha (desbloqueada ao
-# clicar 3 vezes no título "Menu do Sistema" na sidebar).
+# clicar 3 vezes no botão invisível no topo da sidebar).
 if "aba_cobra_desbloqueada" not in st.session_state:
     st.session_state["aba_cobra_desbloqueada"] = False
 if "snake_click_count" not in st.session_state:
     st.session_state["snake_click_count"] = 0
 
 # --- MENU LATERAL ---
-# ALTERADO: o título "Menu do Sistema" foi transformado em um botão disfarçado
-# de título (mesmo texto, mesma cor, sem fundo/borda). Ao clicar nele 3 vezes
-# (na prática, no "S" inicial), o Jogo da Cobrinha é desbloqueado silenciosamente
-# e passa a aparecer como nova opção no menu lateral.
-st.sidebar.markdown('<span id="snake-s-marker"></span>', unsafe_allow_html=True)
-if st.sidebar.button("Menu do Sistema", key="btn_unlock_snake"):
+# BOTÃO INVISÍVEL: fica no topo da sidebar. Ao clicar 3 vezes nele, o Jogo da
+# Cobrinha é desbloqueado. A palavra "Menu do Sistema" abaixo permanece texto puro.
+st.sidebar.markdown('<span id="snake-btn-marker"></span>', unsafe_allow_html=True)
+if st.sidebar.button(" ", key="btn_unlock_snake"):
     st.session_state["snake_click_count"] = st.session_state.get("snake_click_count", 0) + 1
     if st.session_state["snake_click_count"] >= 3:
         st.session_state["aba_cobra_desbloqueada"] = True
         st.session_state["snake_click_count"] = 0
     st.rerun()
 
+st.sidebar.title("Menu do Sistema")
 st.sidebar.write(f"Usuário: **{st.session_state.get('usuario_logado')}**")
 st.sidebar.write(f"Perfil: **{st.session_state.get('nivel_acesso')}**")
 
@@ -461,6 +506,7 @@ if st.sidebar.button("Sair"):
     st.session_state["aba_secreta_desbloqueada"] = False
     st.session_state["aba_cobra_desbloqueada"] = False  # ADICIONADO: relock ao sair
     st.session_state["snake_click_count"] = 0           # ADICIONADO: reseta contador ao sair
+    st.session_state["menu_navegacao"] = "Cadastro Rápido"  # ADICIONADO: volta pro início
     st.query_params.clear()
     st.rerun()
 
@@ -483,9 +529,21 @@ if st.session_state["aba_secreta_desbloqueada"]:
 if st.session_state["aba_cobra_desbloqueada"]:
     opcoes_menu.append("🐍 Sala Secreta: Jogo da Cobrinha")
 
-aba_selecionada = st.sidebar.radio("Navegação", opcoes_menu)
+# Estado padrão do menu (usa key explícita para permitir redirecionamento
+# automático para a aba da Cobrinha depois de salvar um novo recorde)
+if "menu_navegacao" not in st.session_state or st.session_state["menu_navegacao"] not in opcoes_menu:
+    st.session_state["menu_navegacao"] = opcoes_menu[0]
 
-# BOTÃO INVISÍVEL NA SIDEBAR
+if st.session_state.get("auto_open_snake"):
+    st.session_state["auto_open_snake"] = False
+    for opt in opcoes_menu:
+        if "Cobrinha" in opt:
+            st.session_state["menu_navegacao"] = opt
+            break
+
+aba_selecionada = st.sidebar.radio("Navegação", opcoes_menu, key="menu_navegacao")
+
+# BOTÃO INVISÍVEL NA SIDEBAR (desbloqueia a Forca — permanece na parte de baixo)
 st.sidebar.markdown('<span id="secret-btn-marker"></span>', unsafe_allow_html=True)
 if st.sidebar.button(" ", key="btn_secreto"):
     st.session_state["aba_secreta_desbloqueada"] = not st.session_state["aba_secreta_desbloqueada"]
@@ -1263,394 +1321,4 @@ elif aba_selecionada == "Espaços Disponíveis":
                 st.error("O campo 'm²' deve ser maior que zero!")
             else:
                 try:
-                    # USA O HELPER: garante DataFrame limpo com colunas corretas
-                    df_esp = ler_aba_padronizada("Espaços Disponíveis", COLUNAS_ESP)
-
-                    # Adiciona automaticamente o sufixo "m²" ao valor numérico (formatação limpa)
-                    metragem_formatada_esp = f"{esp_metragem:g} m²"
-
-                    novo_espaco = pd.DataFrame(
-                        [
-                            {
-                                "Unidade disponível": esp_unidade,
-                                "Endereço": esp_endereco,
-                                "Interno/Externo": esp_interno_externo,
-                                "Espaço Disp.": esp_espaco_disp,
-                                "m²": metragem_formatada_esp,
-                                "Pontos de consumo": esp_pontos_consumo,
-                                "Cadastrado Por": st.session_state["usuario_logado"],
-                            }
-                        ]
-                    )
-
-                    df_esp_atualizado = pd.concat([df_esp, novo_espaco], ignore_index=True)
-                    df_esp_atualizado = df_esp_atualizado[COLUNAS_ESP]
-
-                    conn.update(spreadsheet=url_planilha, worksheet="Espaços Disponíveis", data=df_esp_atualizado)
-
-                    st.success("Espaço disponível cadastrado com sucesso!")
-                    st.rerun()
-                except Exception as err:
-                    st.error(f"Erro ao salvar na guia 'Espaços Disponíveis': {err}")
-    else:
-        st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
-
-    st.divider()
-    st.subheader("Visualização do Banco de Dados - Espaços Disponíveis")
-
-    try:
-        df_esp_view = ler_aba_padronizada("Espaços Disponíveis", COLUNAS_ESP)
-
-        if nivel == "Admin" and not df_esp_view.empty:
-            st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
-
-            df_esp_editor = df_esp_view.copy()
-            df_esp_editor.insert(0, "Excluir", False)
-
-            tabela_esp_editavel = st.data_editor(
-                df_esp_editor,
-                hide_index=True,
-                use_container_width=True,
-                num_rows="fixed"
-            )
-
-            linhas_esp_remover = tabela_esp_editavel[tabela_esp_editavel["Excluir"] == True]
-
-            if not linhas_esp_remover.empty:
-                if st.button("Confirmar Exclusão dos Espaços Selecionados"):
-                    df_esp_final = tabela_esp_editavel[tabela_esp_editavel["Excluir"] == False].drop(columns=["Excluir"])
-                    conn.update(spreadsheet=url_planilha, worksheet="Espaços Disponíveis", data=df_esp_final)
-                    st.success("Espaço(s) removido(s) com sucesso!")
-                    st.rerun()
-        else:
-            st.dataframe(df_esp_view, use_container_width=True)
-
-    except Exception as e:
-        st.info("Nenhum espaço cadastrado ou a guia 'Espaços Disponíveis' ainda não foi criada no Google Sheets.")
-
-# --- ABA SECRETA: JOGO DA FORCA ---
-elif aba_selecionada == "🎮 Sala Secreta: Jogo da Forca":
-    st.title("🕵️‍♂️ Área Secreta - Jogo da Forca")
-    st.write("Parabéns por encontrar o modo secreto! Descanse um pouco e jogue uma partida.")
-
-    # Lista de Palavras secretas
-    PALAVRAS_FORCA = ["STREAMLIT", "PYTHON", "GERENTE", "SUBLOCATARIO", "PRESTADOR", "CADASTRO", "SISTEMA", "LOJA", "CONTRATO"]
-
-    # Inicialização das variáveis do jogo
-    if "palavra_secreta" not in st.session_state:
-        st.session_state["palavra_secreta"] = random.choice(PALAVRAS_FORCA)
-        st.session_state["letras_chutadas"] = []
-        st.session_state["tentativas_restantes"] = 6
-
-    def reiniciar_jogo():
-        st.session_state["palavra_secreta"] = random.choice(PALAVRAS_FORCA)
-        st.session_state["letras_chutadas"] = []
-        st.session_state["tentativas_restantes"] = 6
-
-    # Estágios da Forca em ASCII
-    ESTAGIOS_FORCA = [
-        """
-           +---+
-           |   |
-               |
-               |
-               |
-               |
-         =========""",
-        """
-           +---+
-           |   |
-           O   |
-               |
-               |
-               |
-         =========""",
-        """
-           +---+
-           |   |
-           O   |
-           |   |
-               |
-               |
-         =========""",
-        """
-           +---+
-           |   |
-           O   |
-          /|   |
-               |
-               |
-         =========""",
-        """
-           +---+
-           |   |
-           O   |
-          /|\\  |
-               |
-               |
-         =========""",
-        """
-           +---+
-           |   |
-           O   |
-          /|\\  |
-          /    |
-               |
-         =========""",
-        """
-           +---+
-           |   |
-           O   |
-          /|\\  |
-          / \\  |
-               |
-         ========="""
-    ]
-
-    col_jogo1, col_jogo2 = st.columns([1, 1])
-
-    with col_jogo1:
-        erros = 6 - st.session_state["tentativas_restantes"]
-        st.code(ESTAGIOS_FORCA[erros], language="text")
-
-    with col_jogo2:
-        # Mostra a palavra oculta
-        palavra_exibida = "".join([letra if letra in st.session_state["letras_chutadas"] else " _ " for letra in st.session_state["palavra_secreta"]])
-        st.subheader(f"Palavra: {palavra_exibida}")
-        st.write(f"Tentativas restantes: **{st.session_state['tentativas_restantes']}**")
-        st.write(f"Letras já tentadas: {', '.join(st.session_state['letras_chutadas'])}")
-
-        # Verificação de vitória ou derrota
-        ganhou = all(letra in st.session_state["letras_chutadas"] for letra in st.session_state["palavra_secreta"])
-        perdeu = st.session_state["tentativas_restantes"] <= 0
-
-        if not ganhou and not perdeu:
-            with st.form("form_forca", clear_on_submit=True):
-                chute = st.text_input("Digite uma letra:", max_chars=1).upper()
-                btn_chutar = st.form_submit_button("Tentar Letra")
-
-                if btn_chutar and chute:
-                    if not chute.isalpha():
-                        st.warning("Por favor, digite apenas letras!")
-                    elif chute in st.session_state["letras_chutadas"]:
-                        st.info("Você já tentou essa letra.")
-                    else:
-                        st.session_state["letras_chutadas"].append(chute)
-                        if chute not in st.session_state["palavra_secreta"]:
-                            st.session_state["tentativas_restantes"] -= 1
-                        st.rerun()
-
-        if ganhou:
-            st.balloons()
-            st.success("🎉 Parabéns, você venceu!")
-            if st.button("Jogar Novamente"):
-                reiniciar_jogo()
-                st.rerun()
-
-        if perdeu:
-            st.error(f"☠️ Fim de jogo! A palavra era: **{st.session_state['palavra_secreta']}**")
-            if st.button("Tentar Novamente"):
-                reiniciar_jogo()
-                st.rerun()
-
-# ==============================================================================
-# NOVA ABA SECRETA: JOGO DA COBRINHA (desbloqueado com 3 cliques no título)
-# ==============================================================================
-elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
-    st.title("🐍 Área Secreta - Jogo da Cobrinha")
-    st.write(
-        "Você desbloqueou o segundo modo secreto! Use as setas ⬆ ⬇ ⬅ ➡ do teclado "
-        "para jogar. Se as setas não responderem, clique uma vez sobre o tabuleiro "
-        "para dar foco ao jogo."
-    )
-
-    # Jogo da Cobrinha completo em HTML5 Canvas + JavaScript, embutido via
-    # components.html. Streamlit não suporta input de teclado em tempo real,
-    # então o jeito mais limpo e funcional de ter um Snake de verdade é
-    # renderizar o jogo dentro de um iframe.
-    SNAKE_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8" />
-<style>
-  * { box-sizing: border-box; }
-  html, body {
-    background: #341539;
-    color: #FFD80F;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    margin: 0;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    height: 100%;
-  }
-  h2 { color: #FFD80F; margin: 0 0 12px 0; }
-  canvas {
-    background: #262730;
-    border: 2px solid #FFD80F;
-    border-radius: 8px;
-    display: block;
-    outline: none;
-    cursor: pointer;
-  }
-  .info { color: #FFD80F; margin-top: 12px; font-weight: bold; }
-  .status { color: #FFD80F; margin-top: 6px; font-size: 14px; text-align: center; }
-  button {
-    background: #FFD80F;
-    color: #000;
-    border: none;
-    padding: 10px 24px;
-    border-radius: 8px;
-    font-weight: bold;
-    cursor: pointer;
-    margin-top: 14px;
-    font-size: 14px;
-  }
-  button:hover { background: #7B2CBF; color: #FFF; }
-</style>
-</head>
-<body>
-  <h2>🐍 Jogo da Cobrinha</h2>
-  <canvas id="game" width="400" height="400" tabindex="0"></canvas>
-  <div class="info">Pontos: <span id="score">0</span> &nbsp;|&nbsp; Recorde: <span id="high">0</span></div>
-  <div class="status" id="status">Use as setas ⬆ ⬇ ⬅ ➡ para jogar</div>
-  <button onclick="resetGame()">🔄 Reiniciar</button>
-
-  <script>
-  (function () {
-    const canvas = document.getElementById('game');
-    const ctx = canvas.getContext('2d');
-    const box = 20;
-    const cols = canvas.width / box;
-    const rows = canvas.height / box;
-
-    let snake, dir, nextDir, food, score, high, gameOver, loop;
-
-    high = 0;
-
-    function placeFood() {
-      let attempts = 0;
-      do {
-        food = {
-          x: Math.floor(Math.random() * cols),
-          y: Math.floor(Math.random() * rows)
-        };
-        attempts++;
-      } while (snake.some(s => s.x === food.x && s.y === food.y) && attempts < 500);
-    }
-
-    function resetGame() {
-      snake = [{x: 5, y: 5}, {x: 4, y: 5}, {x: 3, y: 5}];
-      dir = {x: 1, y: 0};
-      nextDir = {x: 1, y: 0};
-      score = 0;
-      gameOver = false;
-      document.getElementById('score').textContent = '0';
-      document.getElementById('status').textContent = 'Use as setas ⬆ ⬇ ⬅ ➡ para jogar';
-      placeFood();
-      if (loop) clearInterval(loop);
-      loop = setInterval(tick, 110);
-      draw();
-      canvas.focus();
-    }
-
-    function tick() {
-      if (gameOver) return;
-      dir = nextDir;
-
-      const head = {x: snake[0].x + dir.x, y: snake[0].y + dir.y};
-
-      if (
-        head.x < 0 || head.x >= cols ||
-        head.y < 0 || head.y >= rows ||
-        snake.some(s => s.x === head.x && s.y === head.y)
-      ) {
-        gameOver = true;
-        clearInterval(loop);
-        document.getElementById('status').textContent =
-          '☠️ Game Over! Pontuação final: ' + score;
-        if (score > high) {
-          high = score;
-          document.getElementById('high').textContent = high;
-        }
-        return;
-      }
-
-      snake.unshift(head);
-
-      if (head.x === food.x && head.y === food.y) {
-        score++;
-        document.getElementById('score').textContent = score;
-        placeFood();
-      } else {
-        snake.pop();
-      }
-
-      draw();
-    }
-
-    function draw() {
-      // Fundo
-      ctx.fillStyle = '#262730';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // Grid sutil
-      ctx.strokeStyle = 'rgba(255, 216, 15, 0.08)';
-      ctx.lineWidth = 1;
-      for (let i = 0; i <= cols; i++) {
-        ctx.beginPath();
-        ctx.moveTo(i * box + 0.5, 0);
-        ctx.lineTo(i * box + 0.5, canvas.height);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(0, i * box + 0.5);
-        ctx.lineTo(canvas.width, i * box + 0.5);
-        ctx.stroke();
-      }
-
-      // Comida
-      ctx.fillStyle = '#7B2CBF';
-      ctx.beginPath();
-      ctx.arc(food.x * box + box / 2, food.y * box + box / 2, box / 2 - 2, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Cobra
-      snake.forEach((s, i) => {
-        if (i === 0) {
-          ctx.fillStyle = '#FFD80F';
-        } else {
-          const alpha = 0.55 + 0.4 * (1 - i / Math.max(1, snake.length));
-          ctx.fillStyle = 'rgba(255, 216, 15, ' + alpha + ')';
-        }
-        ctx.fillRect(s.x * box + 1, s.y * box + 1, box - 2, box - 2);
-      });
-    }
-
-    // Controles: setas do teclado. Previne scroll da página quando usadas.
-    window.addEventListener('keydown', function (e) {
-      const k = e.key;
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].indexOf(k) !== -1) {
-        e.preventDefault();
-      }
-      if (k === 'ArrowUp' && dir.y === 0) nextDir = {x: 0, y: -1};
-      else if (k === 'ArrowDown' && dir.y === 0) nextDir = {x: 0, y: 1};
-      else if (k === 'ArrowLeft' && dir.x === 0) nextDir = {x: -1, y: 0};
-      else if (k === 'ArrowRight' && dir.x === 0) nextDir = {x: 1, y: 0};
-    });
-
-    // Garante foco no canvas (necessário para o iframe receber teclado)
-    canvas.addEventListener('click', function () { canvas.focus(); });
-    window.addEventListener('load', function () { canvas.focus(); });
-
-    resetGame();
-  })();
-  </script>
-</body>
-</html>
-"""
-
-    # Renderiza o jogo dentro de um iframe. Altura suficiente para caber o
-    # tabuleiro, os placares e o botão de reinício.
-    components.html(SNAKE_HTML, height=620, scrolling=False)
+                    # USA O HELPER: garante DataFrame lim
