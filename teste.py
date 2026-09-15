@@ -4,9 +4,6 @@
 # Propriedade Intelectual e Desenvolvimento: Raphael Santos
 # Licença: Uso Exclusivo Autorizado - Proibida Replicação ou Alteração sem Autorização
 # Data de Criação: Set/2026
-# Atualização: Set/2026 (nível Con, gerenciamento de usuários, snake progressivo,
-#              rastreamento de autoria nos cadastros de usuários, edição inline
-#              de registros com auditoria de alteração e validação célula-a-célula)
 # ==============================================================================
 
 import datetime
