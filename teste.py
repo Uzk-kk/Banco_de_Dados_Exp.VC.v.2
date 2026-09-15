@@ -4,31 +4,7 @@
 # Propriedade Intelectual e Desenvolvimento: Raphael Santos
 # Licença: Uso Exclusivo Autorizado - Proibida Replicação ou Alteração sem Autorização
 # Data de Criação: Set/2026
-# ==============================================================================
-
-# ==============================================================================
-# BLOCO DE SEGURANÇA - AUTENTICAÇÃO E SESSÃO
-# ==============================================================================
-#
-# COMO CONFIGURAR OS USUÁRIOS (st.secrets):
-# No arquivo .streamlit/secrets.toml (local) OU em "Settings > Secrets" no painel
-# do Streamlit Cloud, cadastre os usuários usando SENHA EM HASH, nunca em texto puro:
-#
-#   [USUARIOS.admin]
-#   senha = "COLE_AQUI_O_HASH_GERADO"
-#   nivel = "Admin"
-#
-# COMO GERAR O HASH DE UMA SENHA:
-# Rode este trecho uma única vez (no terminal, num arquivo .py separado, ou até
-# aqui mesmo comentando a linha st.stop() abaixo temporariamente) e copie o
-# resultado para o secrets.toml:
-#
-#   import hashlib
-#   print(hashlib.sha256("SUA_SENHA_AQUI".strip().encode("utf-8")).hexdigest())
-#
-# IMPORTANTE: como as senhas no secrets.toml agora precisam ser o HASH (e não
-# mais a senha em texto puro), você precisa gerar o hash de cada senha existente
-# e atualizar o secrets.toml antes de fazer login novamente.
+# Atualização: Set/2026 (nível Con, tela de gerenciamento de usuários, snake progressivo)
 # ==============================================================================
 
 import datetime
@@ -170,13 +146,47 @@ def gerar_hash_senha(senha: str) -> str:
 
 try:
     dados_secrets = st.secrets["USUARIOS"]
-    USUARIOS = {k.strip().lower(): v for k, v in dados_secrets.items()}
-    if not USUARIOS:
-        raise ValueError("Nenhum usuário encontrado em st.secrets['USUARIOS'].")
-    ERRO_CONFIGURACAO = None
-except Exception as erro_config:
-    USUARIOS = {}
-    ERRO_CONFIGURACAO = str(erro_config)
+    USUARIOS_SECRETS = {k.strip().lower(): v for k, v in dados_secrets.items()}
+except Exception:
+    USUARIOS_SECRETS = {}
+
+conn = st.connection("gsheets", type=GSheetsConnection)
+url_planilha = st.secrets["connections"]["gsheets"]["spreadsheet"]
+
+def ler_aba_padronizada(nome_aba, colunas_esperadas):
+    try:
+        df = conn.read(spreadsheet=url_planilha, worksheet=nome_aba, ttl=0)
+    except Exception:
+        return pd.DataFrame(columns=colunas_esperadas)
+
+    if df is None or df.empty:
+        return pd.DataFrame(columns=colunas_esperadas)
+
+    df = df.loc[:, ~df.columns.duplicated()].copy()
+
+    for col in colunas_esperadas:
+        if col not in df.columns:
+            df[col] = ""
+
+    return df[colunas_esperadas].copy()
+
+def carregar_usuarios():
+    usuarios = dict(USUARIOS_SECRETS)
+    try:
+        df = conn.read(spreadsheet=url_planilha, worksheet="Usuários", ttl=0)
+        if df is not None and not df.empty:
+            df = df.loc[:, ~df.columns.duplicated()]
+            for _, row in df.iterrows():
+                u = str(row.get("Usuário", "")).strip().lower()
+                if not u:
+                    continue
+                usuarios[u] = {
+                    "senha": str(row.get("Senha", "")).strip(),
+                    "nivel": str(row.get("Nível", "")).strip(),
+                }
+    except Exception:
+        pass
+    return usuarios
 
 @st.cache_resource
 def obter_armazenamento_sessoes():
@@ -234,12 +244,12 @@ if "bloqueado_ate" not in st.session_state:
 if not st.session_state["autenticado"]:
     st.title("Acesso Restrito")
 
-    if ERRO_CONFIGURACAO:
+    USUARIOS = carregar_usuarios()
+
+    if not USUARIOS:
         st.error(
-            "Erro de configuração: os usuários não foram carregados corretamente "
-            "a partir de st.secrets['USUARIOS']. Verifique o arquivo de secrets "
-            "no painel do Streamlit Cloud (ou o .streamlit/secrets.toml local).\n\n"
-            f"Detalhe técnico: {ERRO_CONFIGURACAO}"
+            "Nenhum usuário cadastrado. Configure st.secrets['USUARIOS'] (bootstrap) "
+            "ou crie a aba 'Usuários' na planilha com as colunas: Usuário, Senha, Nível."
         )
         st.stop()
 
@@ -299,32 +309,14 @@ if not st.session_state["autenticado"]:
 
     st.stop()
 
-conn = st.connection("gsheets", type=GSheetsConnection)
-url_planilha = st.secrets["connections"]["gsheets"]["spreadsheet"]
-
-def ler_aba_padronizada(nome_aba, colunas_esperadas):
-    try:
-        df = conn.read(spreadsheet=url_planilha, worksheet=nome_aba, ttl=0)
-    except Exception:
-        return pd.DataFrame(columns=colunas_esperadas)
-
-    if df is None or df.empty:
-        return pd.DataFrame(columns=colunas_esperadas)
-
-    df = df.loc[:, ~df.columns.duplicated()].copy()
-
-    for col in colunas_esperadas:
-        if col not in df.columns:
-            df[col] = ""
-
-    return df[colunas_esperadas].copy()
-
 if "aba_secreta_desbloqueada" not in st.session_state:
     st.session_state["aba_secreta_desbloqueada"] = False
 
+nivel = st.session_state.get("nivel_acesso")
+
 st.sidebar.title("Menu do Sistema")
 st.sidebar.write(f"Usuário: **{st.session_state.get('usuario_logado')}**")
-st.sidebar.write(f"Perfil: **{st.session_state.get('nivel_acesso')}**")
+st.sidebar.write(f"Perfil: **{nivel}**")
 
 if st.sidebar.button("Sair"):
     encerrar_sessao(st.session_state.get("session_token"))
@@ -349,6 +341,8 @@ opcoes_menu = [
     "Senhas Concessionárias",
     "Espaços Disponíveis",
 ]
+if nivel in ["Admin", "Con"]:
+    opcoes_menu.append("👥 Gerenciar Usuários")
 if st.session_state["aba_secreta_desbloqueada"]:
     opcoes_menu.append("🎮 Sala Secreta: Jogo da Forca")
     opcoes_menu.append("🐍 Sala Secreta: Jogo da Cobrinha")
@@ -363,12 +357,10 @@ if st.sidebar.button(" ", key="btn_secreto"):
     st.session_state["aba_secreta_desbloqueada"] = not st.session_state["aba_secreta_desbloqueada"]
     st.rerun()
 
-nivel = st.session_state.get("nivel_acesso")
-
 if aba_selecionada == "Cadastro Rápido":
     st.title("Cadastro Rápido de Dados")
 
-    if nivel in ["Editor", "Admin"]:
+    if nivel in ["Editor", "Admin", "Con"]:
         with st.form("form_cadastro", clear_on_submit=True):
             campo1 = st.text_input("Loja")
             campo2 = st.text_input("Nome Completo")
@@ -421,7 +413,7 @@ if aba_selecionada == "Cadastro Rápido":
     try:
         df = conn.read(spreadsheet=url_planilha, worksheet="Cadastro Rápido", ttl=0)
         
-        if nivel == "Admin" and not df.empty:
+        if nivel in ["Admin", "Con"] and not df.empty:
             st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
             
             df_editor = df.copy()
@@ -451,7 +443,7 @@ if aba_selecionada == "Cadastro Rápido":
 elif aba_selecionada == "Controle de Prestadores":
     st.title("Controle de Prestadores de Serviço")
 
-    if nivel in ["Editor", "Admin"]:
+    if nivel in ["Editor", "Admin", "Con"]:
         with st.form("form_prestadores", clear_on_submit=True):
             col1, col2 = st.columns(2)
             
@@ -511,7 +503,7 @@ elif aba_selecionada == "Controle de Prestadores":
     try:
         df_p = conn.read(spreadsheet=url_planilha, worksheet="Controle de Prestadores", ttl=0)
         
-        if nivel == "Admin" and not df_p.empty:
+        if nivel in ["Admin", "Con"] and not df_p.empty:
             st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
             
             df_p_editor = df_p.copy()
@@ -541,7 +533,7 @@ elif aba_selecionada == "Controle de Prestadores":
 elif aba_selecionada == "Sublocatários":
     st.title("Controle de Sublocatários")
 
-    if nivel in ["Editor", "Admin"]:
+    if nivel in ["Editor", "Admin", "Con"]:
         with st.form("form_sublocatarios", clear_on_submit=True):
             col1, col2 = st.columns(2)
 
@@ -624,7 +616,7 @@ elif aba_selecionada == "Sublocatários":
     try:
         df_s = conn.read(spreadsheet=url_planilha, worksheet="Sublocatários", ttl=0)
 
-        if nivel == "Admin" and not df_s.empty:
+        if nivel in ["Admin", "Con"] and not df_s.empty:
             st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
 
             df_s_editor = df_s.copy()
@@ -654,7 +646,7 @@ elif aba_selecionada == "Sublocatários":
 elif aba_selecionada == "Controle Gerentes de Loja":
     st.title("Controle Gerentes de Loja")
 
-    if nivel in ["Editor", "Admin"]:
+    if nivel in ["Editor", "Admin", "Con"]:
         with st.form("form_gerentes", clear_on_submit=True):
             col1, col2 = st.columns(2)
 
@@ -709,7 +701,7 @@ elif aba_selecionada == "Controle Gerentes de Loja":
     try:
         df_g = conn.read(spreadsheet=url_planilha, worksheet="Controle Gerentes de Loja", ttl=0)
 
-        if nivel == "Admin" and not df_g.empty:
+        if nivel in ["Admin", "Con"] and not df_g.empty:
             st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
 
             df_g_editor = df_g.copy()
@@ -749,7 +741,7 @@ elif aba_selecionada == "Contas de Consumo":
         "Cadastrado Por",
     ]
 
-    if nivel in ["Editor", "Admin"]:
+    if nivel in ["Editor", "Admin", "Con"]:
         with st.form("form_contas_consumo", clear_on_submit=True):
             col1, col2 = st.columns(2)
 
@@ -839,7 +831,7 @@ elif aba_selecionada == "Contas de Consumo":
     try:
         df_cc_view = ler_aba_padronizada("Contas de Consumo", COLUNAS_CC)
 
-        if nivel == "Admin" and not df_cc_view.empty:
+        if nivel in ["Admin", "Con"] and not df_cc_view.empty:
             st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
 
             df_cc_editor = df_cc_view.copy()
@@ -876,7 +868,7 @@ elif aba_selecionada == "Controle de Acessos":
         "Cadastrado Por",
     ]
 
-    if nivel in ["Editor", "Admin"]:
+    if nivel in ["Editor", "Admin", "Con"]:
         with st.form("form_controle_acessos", clear_on_submit=True):
             col1, col2 = st.columns(2)
 
@@ -947,7 +939,7 @@ elif aba_selecionada == "Controle de Acessos":
     try:
         df_ca_view = ler_aba_padronizada("Controle de Acessos", COLUNAS_CA)
 
-        if nivel == "Admin" and not df_ca_view.empty:
+        if nivel in ["Admin", "Con"] and not df_ca_view.empty:
             st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
 
             df_ca_editor = df_ca_view.copy()
@@ -982,7 +974,7 @@ elif aba_selecionada == "Senhas Concessionárias":
         "Cadastrado Por",
     ]
 
-    if nivel in ["Editor", "Admin"]:
+    if nivel in ["Editor", "Admin", "Con"]:
         with st.form("form_senhas_concessionarias", clear_on_submit=True):
             col1, col2 = st.columns(2)
 
@@ -1037,7 +1029,7 @@ elif aba_selecionada == "Senhas Concessionárias":
     try:
         df_sc_view = ler_aba_padronizada("Senhas Concessionárias", COLUNAS_SC)
 
-        if nivel == "Admin" and not df_sc_view.empty:
+        if nivel in ["Admin", "Con"] and not df_sc_view.empty:
             st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
 
             df_sc_editor = df_sc_view.copy()
@@ -1073,7 +1065,7 @@ elif aba_selecionada == "Espaços Disponíveis":
         "Cadastrado Por",
     ]
 
-    if nivel in ["Editor", "Admin"]:
+    if nivel in ["Editor", "Admin", "Con"]:
         with st.form("form_espacos_disponiveis", clear_on_submit=True):
             col1, col2 = st.columns(2)
 
@@ -1139,7 +1131,7 @@ elif aba_selecionada == "Espaços Disponíveis":
     try:
         df_esp_view = ler_aba_padronizada("Espaços Disponíveis", COLUNAS_ESP)
 
-        if nivel == "Admin" and not df_esp_view.empty:
+        if nivel in ["Admin", "Con"] and not df_esp_view.empty:
             st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
 
             df_esp_editor = df_esp_view.copy()
@@ -1165,6 +1157,122 @@ elif aba_selecionada == "Espaços Disponíveis":
 
     except Exception as e:
         st.info("Nenhum espaço cadastrado ou a guia 'Espaços Disponíveis' ainda não foi criada no Google Sheets.")
+
+elif aba_selecionada == "👥 Gerenciar Usuários":
+    st.title("Gerenciar Usuários")
+
+    if nivel not in ["Admin", "Con"]:
+        st.error("Você não tem permissão para acessar esta página.")
+        st.stop()
+
+    st.subheader("🟢 Sessões Ativas")
+    agora_ts = time.time()
+    sessoes_ativas = []
+    for token, dados in list(SESSOES.items()):
+        if agora_ts <= dados.get("expira_em", 0):
+            sessoes_ativas.append({
+                "Usuário": dados["usuario"].title(),
+                "Nível": dados["nivel"],
+                "Expira em": datetime.datetime.fromtimestamp(dados["expira_em"]).strftime("%d/%m/%Y %H:%M:%S"),
+            })
+    if sessoes_ativas:
+        st.dataframe(pd.DataFrame(sessoes_ativas), use_container_width=True, hide_index=True)
+    else:
+        st.info("Nenhuma sessão ativa no momento.")
+
+    st.divider()
+
+    st.subheader("📋 Usuários Cadastrados")
+    usuarios_atuais = carregar_usuarios()
+    lista_usuarios = []
+    for user, dados in usuarios_atuais.items():
+        lista_usuarios.append({
+            "Usuário": user,
+            "Nível": dados.get("nivel", ""),
+            "Origem": "Secrets (bootstrap)" if user in USUARIOS_SECRETS else "Planilha",
+        })
+    if lista_usuarios:
+        df_usuarios_vis = pd.DataFrame(lista_usuarios)
+        df_usuarios_vis = df_usuarios_vis.sort_values(by=["Origem", "Nível", "Usuário"]).reset_index(drop=True)
+        st.dataframe(df_usuarios_vis, use_container_width=True, hide_index=True)
+    else:
+        st.info("Nenhum usuário cadastrado.")
+
+    st.divider()
+
+    st.subheader("➕ Adicionar Novo Usuário")
+    if nivel == "Admin":
+        niveis_disponiveis = ["Leitor", "Editor"]
+    else:
+        niveis_disponiveis = ["Leitor", "Editor", "Admin"]
+
+    with st.form("form_add_usuario", clear_on_submit=True):
+        novo_user = st.text_input("Nome de usuário")
+        nova_senha = st.text_input("Senha", type="password")
+        novo_nivel = st.selectbox("Nível", niveis_disponiveis)
+        btn_add = st.form_submit_button("Adicionar Usuário")
+
+    if btn_add:
+        user_limpo = novo_user.strip().lower()
+        senha_limpa = nova_senha.strip()
+
+        if not user_limpo or not senha_limpa:
+            st.error("Usuário e senha são obrigatórios.")
+        elif user_limpo in usuarios_atuais:
+            st.error(f"O usuário '{user_limpo}' já existe (secrets ou planilha).")
+        else:
+            try:
+                df_usr = ler_aba_padronizada("Usuários", ["Usuário", "Senha", "Nível"])
+                nova_linha = pd.DataFrame([{
+                    "Usuário": user_limpo,
+                    "Senha": gerar_hash_senha(senha_limpa),
+                    "Nível": novo_nivel,
+                }])
+                df_usr = pd.concat([df_usr, nova_linha], ignore_index=True)
+                conn.update(spreadsheet=url_planilha, worksheet="Usuários", data=df_usr)
+                st.success(f"Usuário '{user_limpo}' adicionado com sucesso como {novo_nivel}!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao adicionar usuário: {e}")
+
+    st.divider()
+
+    st.subheader("🗑️ Remover Usuário")
+    try:
+        df_usr_rem = ler_aba_padronizada("Usuários", ["Usuário", "Senha", "Nível"])
+    except Exception:
+        df_usr_rem = pd.DataFrame(columns=["Usuário", "Senha", "Nível"])
+
+    if df_usr_rem.empty:
+        st.info("Não há usuários cadastrados na planilha para remover.")
+    else:
+        usuario_logado_lower = st.session_state.get("usuario_logado", "").strip().lower()
+        removiveis = []
+        for _, row in df_usr_rem.iterrows():
+            user_r = str(row.get("Usuário", "")).strip().lower()
+            nivel_r = str(row.get("Nível", "")).strip()
+            if not user_r:
+                continue
+            if user_r == usuario_logado_lower:
+                continue
+            if nivel == "Admin" and nivel_r in ["Editor", "Leitor"]:
+                removiveis.append((user_r, nivel_r))
+            elif nivel == "Con" and nivel_r in ["Admin", "Editor", "Leitor"]:
+                removiveis.append((user_r, nivel_r))
+
+        if not removiveis:
+            st.info("Você não tem permissão para remover nenhum usuário cadastrado na planilha.")
+        else:
+            opcoes_remover = [f"{u} ({n})" for u, n in removiveis]
+            escolha = st.selectbox("Selecione o usuário que deseja remover", opcoes_remover, key="user_remover")
+            if st.button("Confirmar Remoção"):
+                user_alvo = escolha.split(" (")[0].strip().lower()
+                df_usr_final = df_usr_rem[
+                    df_usr_rem["Usuário"].astype(str).str.strip().str.lower() != user_alvo
+                ]
+                conn.update(spreadsheet=url_planilha, worksheet="Usuários", data=df_usr_final)
+                st.success(f"Usuário '{user_alvo}' removido com sucesso!")
+                st.rerun()
 
 elif aba_selecionada == "🎮 Sala Secreta: Jogo da Forca":
     st.title("🕵️‍♂️ Área Secreta - Jogo da Forca")
@@ -1351,10 +1459,29 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
     const cols = canvas.width / box;
     const rows = canvas.height / box;
 
-    let snake, dir, nextDir, food, score, high, gameOver, loop;
+    const INTERVALO_LENTO = 400;
+    const INTERVALO_RAPIDO = 60;
+    const PONTOS_POR_ACELERACAO = 2;
+    const PASSO_ACELERACAO_MS = 20;
+
+    let snake, dir, nextDir, food, score, high, gameOver, timeoutId;
 
     high = 0;
     document.getElementById('high').textContent = high;
+
+    function getIntervaloAtual() {
+      const reduzido = Math.floor(score / PONTOS_POR_ACELERACAO) * PASSO_ACELERACAO_MS;
+      const intervalo = INTERVALO_LENTO - reduzido;
+      return Math.max(INTERVALO_RAPIDO, intervalo);
+    }
+
+    function scheduleTick() {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(function () {
+        tick();
+        if (!gameOver) scheduleTick();
+      }, getIntervaloAtual());
+    }
 
     function placeFood() {
       let attempts = 0;
@@ -1376,9 +1503,9 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
       document.getElementById('score').textContent = '0';
       document.getElementById('status').textContent = 'Use as setas ⬆ ⬇ ⬅ ➡ para jogar';
       placeFood();
-      if (loop) clearInterval(loop);
-      loop = setInterval(tick, 110);
+      if (timeoutId) clearTimeout(timeoutId);
       draw();
+      scheduleTick();
       canvas.focus();
     }
 
@@ -1394,7 +1521,6 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
         snake.some(s => s.x === head.x && s.y === head.y)
       ) {
         gameOver = true;
-        clearInterval(loop);
         if (score > high) {
           high = score;
           document.getElementById('high').textContent = high;
