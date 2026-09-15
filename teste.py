@@ -5,6 +5,8 @@
 # Licença: Uso Exclusivo Autorizado - Proibida Replicação ou Alteração sem Autorização
 # Data de Criação: Set/2026
 # Atualização de Segurança: Set/2026 (token de sessão, hash de senha, rate limiting)
+# Atualização: Set/2026 (adição das páginas: Contas de Consumo, Controle de Acessos,
+#              Senhas Concessionárias e Espaços Disponíveis)
 # ==============================================================================
 
 import datetime
@@ -380,7 +382,17 @@ if st.sidebar.button("Sair"):
 st.sidebar.divider()
 
 # Lista dinâmica de abas
-opcoes_menu = ["Cadastro Rápido", "Controle de Prestadores", "Sublocatários", "Controle Gerentes de Loja"]
+# ATUALIZADO: adicionadas as 4 novas páginas mantendo a aba secreta sempre por último.
+opcoes_menu = [
+    "Cadastro Rápido",
+    "Controle de Prestadores",
+    "Sublocatários",
+    "Controle Gerentes de Loja",
+    "Contas de Consumo",
+    "Controle de Acessos",
+    "Senhas Concessionárias",
+    "Espaços Disponíveis",
+]
 if st.session_state["aba_secreta_desbloqueada"]:
     opcoes_menu.append("🎮 Sala Secreta: Jogo da Forca")
 
@@ -768,6 +780,422 @@ elif aba_selecionada == "Controle Gerentes de Loja":
 
     except Exception as e:
         st.info("Nenhum gerente cadastrado ou a guia 'Controle Gerentes de Loja' ainda não foi criada no Google Sheets.")
+
+# ==============================================================================
+# NOVA ABA 5: CONTAS DE CONSUMO
+# ==============================================================================
+elif aba_selecionada == "Contas de Consumo":
+    st.title("Contas de Consumo")
+
+    if nivel in ["Editor", "Admin"]:
+        with st.form("form_contas_consumo", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+
+            with col1:
+                cc_loja = st.text_input("Loja")
+                # UF: campo limitado a 2 caracteres; é convertido para MAIÚSCULO automaticamente.
+                cc_uf = st.text_input("UF (2 letras, ex: SP)", max_chars=2)
+                cc_status = st.text_input("Status")
+                cc_num_fornecimento = st.text_input("Número do fornecimento")
+                cc_concessionaria_energia = st.text_input("Concessionária energia")
+                cc_concessionaria_agua = st.text_input("Concessionária água")
+                cc_instalacao_energia = st.text_input("Número de instalação energia")
+                cc_instalacao_agua = st.text_input("Número de instalação água")
+
+            with col2:
+                cc_telefone = st.text_input("Telefone (Apenas números, 11 dígitos)")
+                cc_documento_titular = st.text_input("Documento do titular")
+                cc_protocolo_energia = st.text_input("Protocolo energia")
+                cc_protocolo_agua = st.text_input("Protocolo água")
+                cc_nome = st.text_input("Nome")
+                cc_cpf_cnpj = st.text_input("CPF/CNPJ (Apenas números)")
+                cc_email = st.text_input("E-mail")
+
+            btn_salvar_cc = st.form_submit_button("Cadastrar Conta de Consumo")
+
+        if btn_salvar_cc:
+            # Lista de todos os campos obrigatórios (todos devem ser preenchidos)
+            campos_cc = [
+                cc_loja, cc_uf, cc_status, cc_num_fornecimento,
+                cc_concessionaria_energia, cc_concessionaria_agua,
+                cc_instalacao_energia, cc_instalacao_agua,
+                cc_telefone, cc_documento_titular,
+                cc_protocolo_energia, cc_protocolo_agua,
+                cc_nome, cc_cpf_cnpj, cc_email,
+            ]
+
+            # UF convertida automaticamente para MAIÚSCULO (requisito: sempre maiúsculas)
+            uf_limpa = cc_uf.strip().upper()
+
+            if any(c.strip() == "" for c in campos_cc):
+                st.error("Por favor, preencha todos os campos do formulário!")
+            elif len(uf_limpa) != 2 or not uf_limpa.isalpha():
+                st.error("O campo 'UF' deve conter exatamente 2 letras maiúsculas (ex: SP, RJ)!")
+            elif not cc_telefone.strip().isdigit() or len(cc_telefone.strip()) != 11:
+                st.error("O campo 'Telefone' deve conter exatamente 11 dígitos numéricos!")
+            elif not cc_cpf_cnpj.strip().isdigit():
+                st.error("O campo 'CPF/CNPJ' deve conter apenas números!")
+            else:
+                try:
+                    df_cc = conn.read(spreadsheet=url_planilha, worksheet="Contas de Consumo", ttl=0)
+
+                    nova_conta = pd.DataFrame(
+                        [
+                            {
+                                "Loja": cc_loja,
+                                "UF": uf_limpa,
+                                "Status": cc_status,
+                                "Número do fornecimento": cc_num_fornecimento,
+                                "Concessionária energia": cc_concessionaria_energia,
+                                "Concessionária água": cc_concessionaria_agua,
+                                "Número de instalação energia": cc_instalacao_energia,
+                                "Número de instalação água": cc_instalacao_agua,
+                                "Telefone": str(cc_telefone),
+                                "Documento do titular": cc_documento_titular,
+                                "Protocolo energia": cc_protocolo_energia,
+                                "Protocolo água": cc_protocolo_agua,
+                                "Nome": cc_nome,
+                                "CPF/CNPJ": str(cc_cpf_cnpj),
+                                "E-mail": cc_email,
+                                "Cadastrado Por": st.session_state["usuario_logado"],
+                            }
+                        ]
+                    )
+
+                    df_cc_atualizado = pd.concat([df_cc, nova_conta], ignore_index=True)
+                    conn.update(spreadsheet=url_planilha, worksheet="Contas de Consumo", data=df_cc_atualizado)
+
+                    st.success("Conta de consumo cadastrada com sucesso!")
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"Erro ao salvar na guia 'Contas de Consumo': {err}")
+    else:
+        st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
+
+    st.divider()
+    st.subheader("Visualização do Banco de Dados - Contas de Consumo")
+
+    try:
+        df_cc_view = conn.read(spreadsheet=url_planilha, worksheet="Contas de Consumo", ttl=0)
+
+        if nivel == "Admin" and not df_cc_view.empty:
+            st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
+
+            df_cc_editor = df_cc_view.copy()
+            df_cc_editor.insert(0, "Excluir", False)
+
+            tabela_cc_editavel = st.data_editor(
+                df_cc_editor,
+                hide_index=True,
+                use_container_width=True,
+                num_rows="fixed"
+            )
+
+            linhas_cc_remover = tabela_cc_editavel[tabela_cc_editavel["Excluir"] == True]
+
+            if not linhas_cc_remover.empty:
+                if st.button("Confirmar Exclusão das Contas de Consumo Selecionadas"):
+                    df_cc_final = tabela_cc_editavel[tabela_cc_editavel["Excluir"] == False].drop(columns=["Excluir"])
+                    conn.update(spreadsheet=url_planilha, worksheet="Contas de Consumo", data=df_cc_final)
+                    st.success("Conta(s) de consumo removida(s) com sucesso!")
+                    st.rerun()
+        else:
+            st.dataframe(df_cc_view, use_container_width=True)
+
+    except Exception as e:
+        st.info("Nenhuma conta cadastrada ou a guia 'Contas de Consumo' ainda não foi criada no Google Sheets.")
+
+# ==============================================================================
+# NOVA ABA 6: CONTROLE DE ACESSOS
+# ==============================================================================
+elif aba_selecionada == "Controle de Acessos":
+    st.title("Controle de Acessos")
+
+    if nivel in ["Editor", "Admin"]:
+        with st.form("form_controle_acessos", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+
+            with col1:
+                ca_loja = st.text_input("Loja")
+                # UF: campo limitado a 2 caracteres; convertido para MAIÚSCULO automaticamente.
+                ca_uf = st.text_input("UF (2 letras, ex: SP)", max_chars=2)
+                ca_status = st.text_input("Status")
+                ca_concessionaria_agua = st.text_input("Concessionária água")
+                ca_login_agua = st.text_input("Login água")
+                # Campo de senha com máscara (não exibe os caracteres digitados)
+                ca_senha_agua = st.text_input("Senha água", type="password")
+
+            with col2:
+                ca_concessionaria_energia = st.text_input("Concessionária energia")
+                ca_login_energia = st.text_input("Login energia")
+                # Campo de senha com máscara
+                ca_senha_energia = st.text_input("Senha energia", type="password")
+
+            btn_salvar_ca = st.form_submit_button("Cadastrar Acesso")
+
+        if btn_salvar_ca:
+            campos_ca = [
+                ca_loja, ca_uf, ca_status,
+                ca_concessionaria_agua, ca_login_agua, ca_senha_agua,
+                ca_concessionaria_energia, ca_login_energia, ca_senha_energia,
+            ]
+
+            uf_limpa_ca = ca_uf.strip().upper()
+
+            if any(c.strip() == "" for c in campos_ca):
+                st.error("Por favor, preencha todos os campos do formulário!")
+            elif len(uf_limpa_ca) != 2 or not uf_limpa_ca.isalpha():
+                st.error("O campo 'UF' deve conter exatamente 2 letras maiúsculas (ex: SP, RJ)!")
+            else:
+                try:
+                    df_ca = conn.read(spreadsheet=url_planilha, worksheet="Controle de Acessos", ttl=0)
+
+                    novo_acesso = pd.DataFrame(
+                        [
+                            {
+                                "Loja": ca_loja,
+                                "UF": uf_limpa_ca,
+                                "Status": ca_status,
+                                "Concessionária água": ca_concessionaria_agua,
+                                "Login água": ca_login_agua,
+                                "Senha água": ca_senha_agua,
+                                "Concessionária energia": ca_concessionaria_energia,
+                                "Login energia": ca_login_energia,
+                                "Senha energia": ca_senha_energia,
+                                "Cadastrado Por": st.session_state["usuario_logado"],
+                            }
+                        ]
+                    )
+
+                    df_ca_atualizado = pd.concat([df_ca, novo_acesso], ignore_index=True)
+                    conn.update(spreadsheet=url_planilha, worksheet="Controle de Acessos", data=df_ca_atualizado)
+
+                    st.success("Acesso cadastrado com sucesso!")
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"Erro ao salvar na guia 'Controle de Acessos': {err}")
+    else:
+        st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
+
+    st.divider()
+    st.subheader("Visualização do Banco de Dados - Controle de Acessos")
+
+    try:
+        df_ca_view = conn.read(spreadsheet=url_planilha, worksheet="Controle de Acessos", ttl=0)
+
+        if nivel == "Admin" and not df_ca_view.empty:
+            st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
+
+            df_ca_editor = df_ca_view.copy()
+            df_ca_editor.insert(0, "Excluir", False)
+
+            tabela_ca_editavel = st.data_editor(
+                df_ca_editor,
+                hide_index=True,
+                use_container_width=True,
+                num_rows="fixed"
+            )
+
+            linhas_ca_remover = tabela_ca_editavel[tabela_ca_editavel["Excluir"] == True]
+
+            if not linhas_ca_remover.empty:
+                if st.button("Confirmar Exclusão dos Acessos Selecionados"):
+                    df_ca_final = tabela_ca_editavel[tabela_ca_editavel["Excluir"] == False].drop(columns=["Excluir"])
+                    conn.update(spreadsheet=url_planilha, worksheet="Controle de Acessos", data=df_ca_final)
+                    st.success("Acesso(s) removido(s) com sucesso!")
+                    st.rerun()
+        else:
+            st.dataframe(df_ca_view, use_container_width=True)
+
+    except Exception as e:
+        st.info("Nenhum acesso cadastrado ou a guia 'Controle de Acessos' ainda não foi criada no Google Sheets.")
+
+# ==============================================================================
+# NOVA ABA 7: SENHAS CONCESSIONÁRIAS
+# ==============================================================================
+elif aba_selecionada == "Senhas Concessionárias":
+    st.title("Senhas Concessionárias")
+
+    if nivel in ["Editor", "Admin"]:
+        with st.form("form_senhas_concessionarias", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+
+            with col1:
+                sc_empresa = st.text_input("Empresa")
+                sc_concessionaria = st.text_input("Concessionária")
+                sc_login = st.text_input("Login")
+
+            with col2:
+                # Campo de senha com máscara
+                sc_senha = st.text_input("Senha", type="password")
+                sc_cnpj_cpf = st.text_input("CNPJ/CPF")
+
+            btn_salvar_sc = st.form_submit_button("Cadastrar Senha")
+
+        if btn_salvar_sc:
+            campos_sc = [sc_empresa, sc_concessionaria, sc_login, sc_senha, sc_cnpj_cpf]
+
+            if any(c.strip() == "" for c in campos_sc):
+                st.error("Por favor, preencha todos os campos do formulário!")
+            else:
+                try:
+                    df_sc = conn.read(spreadsheet=url_planilha, worksheet="Senhas Concessionárias", ttl=0)
+
+                    nova_senha = pd.DataFrame(
+                        [
+                            {
+                                "Empresa": sc_empresa,
+                                "Concessionária": sc_concessionaria,
+                                "Login": sc_login,
+                                "Senha": sc_senha,
+                                "CNPJ/CPF": sc_cnpj_cpf,
+                                "Cadastrado Por": st.session_state["usuario_logado"],
+                            }
+                        ]
+                    )
+
+                    df_sc_atualizado = pd.concat([df_sc, nova_senha], ignore_index=True)
+                    conn.update(spreadsheet=url_planilha, worksheet="Senhas Concessionárias", data=df_sc_atualizado)
+
+                    st.success("Senha cadastrada com sucesso!")
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"Erro ao salvar na guia 'Senhas Concessionárias': {err}")
+    else:
+        st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
+
+    st.divider()
+    st.subheader("Visualização do Banco de Dados - Senhas Concessionárias")
+
+    try:
+        df_sc_view = conn.read(spreadsheet=url_planilha, worksheet="Senhas Concessionárias", ttl=0)
+
+        if nivel == "Admin" and not df_sc_view.empty:
+            st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
+
+            df_sc_editor = df_sc_view.copy()
+            df_sc_editor.insert(0, "Excluir", False)
+
+            tabela_sc_editavel = st.data_editor(
+                df_sc_editor,
+                hide_index=True,
+                use_container_width=True,
+                num_rows="fixed"
+            )
+
+            linhas_sc_remover = tabela_sc_editavel[tabela_sc_editavel["Excluir"] == True]
+
+            if not linhas_sc_remover.empty:
+                if st.button("Confirmar Exclusão das Senhas Selecionadas"):
+                    df_sc_final = tabela_sc_editavel[tabela_sc_editavel["Excluir"] == False].drop(columns=["Excluir"])
+                    conn.update(spreadsheet=url_planilha, worksheet="Senhas Concessionárias", data=df_sc_final)
+                    st.success("Senha(s) removida(s) com sucesso!")
+                    st.rerun()
+        else:
+            st.dataframe(df_sc_view, use_container_width=True)
+
+    except Exception as e:
+        st.info("Nenhuma senha cadastrada ou a guia 'Senhas Concessionárias' ainda não foi criada no Google Sheets.")
+
+# ==============================================================================
+# NOVA ABA 8: ESPAÇOS DISPONÍVEIS
+# ==============================================================================
+elif aba_selecionada == "Espaços Disponíveis":
+    st.title("Espaços Disponíveis")
+
+    if nivel in ["Editor", "Admin"]:
+        with st.form("form_espacos_disponiveis", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+
+            with col1:
+                esp_unidade = st.text_input("Unidade disponível")
+                esp_endereco = st.text_input("Endereço")
+                # Selectbox garante que só as opções válidas sejam escolhidas
+                esp_interno_externo = st.selectbox("Interno/Externo", ["Interno", "Externo"])
+                esp_espaco_disp = st.text_input("Espaço Disp.")
+
+            with col2:
+                # Campo numérico para m² — apenas números; o sufixo " m²" é aplicado automaticamente ao salvar.
+                esp_metragem = st.number_input(
+                    "m² (apenas números)",
+                    min_value=0.0,
+                    step=1.0,
+                    format="%.2f"
+                )
+                esp_pontos_consumo = st.text_input("Pontos de consumo")
+
+            btn_salvar_esp = st.form_submit_button("Cadastrar Espaço")
+
+        if btn_salvar_esp:
+            campos_esp = [esp_unidade, esp_endereco, esp_interno_externo, esp_espaco_disp, esp_pontos_consumo]
+
+            if any(c.strip() == "" for c in campos_esp):
+                st.error("Por favor, preencha todos os campos do formulário!")
+            elif esp_metragem <= 0:
+                st.error("O campo 'm²' deve ser maior que zero!")
+            else:
+                try:
+                    df_esp = conn.read(spreadsheet=url_planilha, worksheet="Espaços Disponíveis", ttl=0)
+
+                    # Adiciona automaticamente o sufixo "m²" ao valor numérico (formatação limpa)
+                    metragem_formatada_esp = f"{esp_metragem:g} m²"
+
+                    novo_espaco = pd.DataFrame(
+                        [
+                            {
+                                "Unidade disponível": esp_unidade,
+                                "Endereço": esp_endereco,
+                                "Interno/Externo": esp_interno_externo,
+                                "Espaço Disp.": esp_espaco_disp,
+                                "m²": metragem_formatada_esp,
+                                "Pontos de consumo": esp_pontos_consumo,
+                                "Cadastrado Por": st.session_state["usuario_logado"],
+                            }
+                        ]
+                    )
+
+                    df_esp_atualizado = pd.concat([df_esp, novo_espaco], ignore_index=True)
+                    conn.update(spreadsheet=url_planilha, worksheet="Espaços Disponíveis", data=df_esp_atualizado)
+
+                    st.success("Espaço disponível cadastrado com sucesso!")
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"Erro ao salvar na guia 'Espaços Disponíveis': {err}")
+    else:
+        st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
+
+    st.divider()
+    st.subheader("Visualização do Banco de Dados - Espaços Disponíveis")
+
+    try:
+        df_esp_view = conn.read(spreadsheet=url_planilha, worksheet="Espaços Disponíveis", ttl=0)
+
+        if nivel == "Admin" and not df_esp_view.empty:
+            st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
+
+            df_esp_editor = df_esp_view.copy()
+            df_esp_editor.insert(0, "Excluir", False)
+
+            tabela_esp_editavel = st.data_editor(
+                df_esp_editor,
+                hide_index=True,
+                use_container_width=True,
+                num_rows="fixed"
+            )
+
+            linhas_esp_remover = tabela_esp_editavel[tabela_esp_editavel["Excluir"] == True]
+
+            if not linhas_esp_remover.empty:
+                if st.button("Confirmar Exclusão dos Espaços Selecionados"):
+                    df_esp_final = tabela_esp_editavel[tabela_esp_editavel["Excluir"] == False].drop(columns=["Excluir"])
+                    conn.update(spreadsheet=url_planilha, worksheet="Espaços Disponíveis", data=df_esp_final)
+                    st.success("Espaço(s) removido(s) com sucesso!")
+                    st.rerun()
+        else:
+            st.dataframe(df_esp_view, use_container_width=True)
+
+    except Exception as e:
+        st.info("Nenhum espaço cadastrado ou a guia 'Espaços Disponíveis' ainda não foi criada no Google Sheets.")
 
 # --- ABA SECRETA: JOGO DA FORCA ---
 elif aba_selecionada == "🎮 Sala Secreta: Jogo da Forca":
