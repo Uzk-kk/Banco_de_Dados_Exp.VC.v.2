@@ -1321,4 +1321,443 @@ elif aba_selecionada == "Espaços Disponíveis":
                 st.error("O campo 'm²' deve ser maior que zero!")
             else:
                 try:
-                    # USA O HELPER: garante DataFrame lim
+                    # USA O HELPER: garante DataFrame limpo com colunas corretas
+                    df_esp = ler_aba_padronizada("Espaços Disponíveis", COLUNAS_ESP)
+
+                    # Adiciona automaticamente o sufixo "m²" ao valor numérico (formatação limpa)
+                    metragem_formatada_esp = f"{esp_metragem:g} m²"
+
+                    novo_espaco = pd.DataFrame(
+                        [
+                            {
+                                "Unidade disponível": esp_unidade,
+                                "Endereço": esp_endereco,
+                                "Interno/Externo": esp_interno_externo,
+                                "Espaço Disp.": esp_espaco_disp,
+                                "m²": metragem_formatada_esp,
+                                "Pontos de consumo": esp_pontos_consumo,
+                                "Cadastrado Por": st.session_state["usuario_logado"],
+                            }
+                        ]
+                    )
+
+                    df_esp_atualizado = pd.concat([df_esp, novo_espaco], ignore_index=True)
+                    df_esp_atualizado = df_esp_atualizado[COLUNAS_ESP]
+
+                    conn.update(spreadsheet=url_planilha, worksheet="Espaços Disponíveis", data=df_esp_atualizado)
+
+                    st.success("Espaço disponível cadastrado com sucesso!")
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"Erro ao salvar na guia 'Espaços Disponíveis': {err}")
+    else:
+        st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
+
+    st.divider()
+    st.subheader("Visualização do Banco de Dados - Espaços Disponíveis")
+
+    try:
+        df_esp_view = ler_aba_padronizada("Espaços Disponíveis", COLUNAS_ESP)
+
+        if nivel == "Admin" and not df_esp_view.empty:
+            st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
+
+            df_esp_editor = df_esp_view.copy()
+            df_esp_editor.insert(0, "Excluir", False)
+
+            tabela_esp_editavel = st.data_editor(
+                df_esp_editor,
+                hide_index=True,
+                use_container_width=True,
+                num_rows="fixed"
+            )
+
+            linhas_esp_remover = tabela_esp_editavel[tabela_esp_editavel["Excluir"] == True]
+
+            if not linhas_esp_remover.empty:
+                if st.button("Confirmar Exclusão dos Espaços Selecionados"):
+                    df_esp_final = tabela_esp_editavel[tabela_esp_editavel["Excluir"] == False].drop(columns=["Excluir"])
+                    conn.update(spreadsheet=url_planilha, worksheet="Espaços Disponíveis", data=df_esp_final)
+                    st.success("Espaço(s) removido(s) com sucesso!")
+                    st.rerun()
+        else:
+            st.dataframe(df_esp_view, use_container_width=True)
+
+    except Exception as e:
+        st.info("Nenhum espaço cadastrado ou a guia 'Espaços Disponíveis' ainda não foi criada no Google Sheets.")
+
+# --- ABA SECRETA: JOGO DA FORCA ---
+elif aba_selecionada == "🎮 Sala Secreta: Jogo da Forca":
+    st.title("🕵️‍♂️ Área Secreta - Jogo da Forca")
+    st.write("Parabéns por encontrar o modo secreto! Descanse um pouco e jogue uma partida.")
+
+    # Lista de Palavras secretas
+    PALAVRAS_FORCA = ["STREAMLIT", "PYTHON", "GERENTE", "SUBLOCATARIO", "PRESTADOR", "CADASTRO", "SISTEMA", "LOJA", "CONTRATO"]
+
+    # Inicialização das variáveis do jogo
+    if "palavra_secreta" not in st.session_state:
+        st.session_state["palavra_secreta"] = random.choice(PALAVRAS_FORCA)
+        st.session_state["letras_chutadas"] = []
+        st.session_state["tentativas_restantes"] = 6
+
+    def reiniciar_jogo():
+        st.session_state["palavra_secreta"] = random.choice(PALAVRAS_FORCA)
+        st.session_state["letras_chutadas"] = []
+        st.session_state["tentativas_restantes"] = 6
+
+    # Estágios da Forca em ASCII
+    ESTAGIOS_FORCA = [
+        """
+           +---+
+           |   |
+               |
+               |
+               |
+               |
+         =========""",
+        """
+           +---+
+           |   |
+           O   |
+               |
+               |
+               |
+         =========""",
+        """
+           +---+
+           |   |
+           O   |
+           |   |
+               |
+               |
+         =========""",
+        """
+           +---+
+           |   |
+           O   |
+          /|   |
+               |
+               |
+         =========""",
+        """
+           +---+
+           |   |
+           O   |
+          /|\\  |
+               |
+               |
+         =========""",
+        """
+           +---+
+           |   |
+           O   |
+          /|\\  |
+          /    |
+               |
+         =========""",
+        """
+           +---+
+           |   |
+           O   |
+          /|\\  |
+          / \\  |
+               |
+         ========="""
+    ]
+
+    col_jogo1, col_jogo2 = st.columns([1, 1])
+
+    with col_jogo1:
+        erros = 6 - st.session_state["tentativas_restantes"]
+        st.code(ESTAGIOS_FORCA[erros], language="text")
+
+    with col_jogo2:
+        # Mostra a palavra oculta
+        palavra_exibida = "".join([letra if letra in st.session_state["letras_chutadas"] else " _ " for letra in st.session_state["palavra_secreta"]])
+        st.subheader(f"Palavra: {palavra_exibida}")
+        st.write(f"Tentativas restantes: **{st.session_state['tentativas_restantes']}**")
+        st.write(f"Letras já tentadas: {', '.join(st.session_state['letras_chutadas'])}")
+
+        # Verificação de vitória ou derrota
+        ganhou = all(letra in st.session_state["letras_chutadas"] for letra in st.session_state["palavra_secreta"])
+        perdeu = st.session_state["tentativas_restantes"] <= 0
+
+        if not ganhou and not perdeu:
+            with st.form("form_forca", clear_on_submit=True):
+                chute = st.text_input("Digite uma letra:", max_chars=1).upper()
+                btn_chutar = st.form_submit_button("Tentar Letra")
+
+                if btn_chutar and chute:
+                    if not chute.isalpha():
+                        st.warning("Por favor, digite apenas letras!")
+                    elif chute in st.session_state["letras_chutadas"]:
+                        st.info("Você já tentou essa letra.")
+                    else:
+                        st.session_state["letras_chutadas"].append(chute)
+                        if chute not in st.session_state["palavra_secreta"]:
+                            st.session_state["tentativas_restantes"] -= 1
+                        st.rerun()
+
+        if ganhou:
+            st.balloons()
+            st.success("🎉 Parabéns, você venceu!")
+            if st.button("Jogar Novamente"):
+                reiniciar_jogo()
+                st.rerun()
+
+        if perdeu:
+            st.error(f"☠️ Fim de jogo! A palavra era: **{st.session_state['palavra_secreta']}**")
+            if st.button("Tentar Novamente"):
+                reiniciar_jogo()
+                st.rerun()
+
+# ==============================================================================
+# NOVA ABA SECRETA: JOGO DA COBRINHA (desbloqueado com 3 cliques no topo da sidebar)
+# ==============================================================================
+elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
+    st.title("🐍 Área Secreta - Jogo da Cobrinha")
+    st.write(
+        "Você desbloqueou o segundo modo secreto! Use as setas ⬆ ⬇ ⬅ ➡ do teclado "
+        "para jogar. Se as setas não responderem, clique uma vez sobre o tabuleiro "
+        "para dar foco ao jogo."
+    )
+
+    # Lê o recorde atual do usuário logado na aba "Recordes"
+    usuario_atual_snake = st.session_state.get("usuario_logado", "")
+    recorde_atual = 0
+    try:
+        df_rec_view = ler_aba_padronizada("Recordes", ["Usuário", "Jogo", "Recorde"])
+        mask_rec_view = (df_rec_view["Usuário"] == usuario_atual_snake) & (df_rec_view["Jogo"] == "Cobrinha")
+        if mask_rec_view.any():
+            valor_str_rec = str(df_rec_view.loc[mask_rec_view, "Recorde"].values[0]).strip()
+            if valor_str_rec.isdigit():
+                recorde_atual = int(valor_str_rec)
+    except Exception:
+        recorde_atual = 0
+
+    st.write(f"🏆 Seu recorde atual: **{recorde_atual}** pontos")
+
+    # Jogo da Cobrinha completo em HTML5 Canvas + JavaScript, embutido via
+    # components.html. Streamlit não suporta input de teclado em tempo real,
+    # então o jeito mais limpo e funcional de ter um Snake de verdade é
+    # renderizar o jogo dentro de um iframe.
+    # O placeholder __RECORDE_ATUAL__ é substituído pelo recorde do usuário
+    # logo abaixo (via str.replace), evitando escapes de chaves em f-strings.
+    SNAKE_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    background: #341539;
+    color: #FFD80F;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    margin: 0;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100%;
+  }
+  h2 { color: #FFD80F; margin: 0 0 12px 0; }
+  canvas {
+    background: #262730;
+    border: 2px solid #FFD80F;
+    border-radius: 8px;
+    display: block;
+    outline: none;
+    cursor: pointer;
+  }
+  .info { color: #FFD80F; margin-top: 12px; font-weight: bold; }
+  .status { color: #FFD80F; margin-top: 6px; font-size: 14px; text-align: center; }
+  button {
+    background: #FFD80F;
+    color: #000;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-weight: bold;
+    cursor: pointer;
+    margin-top: 14px;
+    font-size: 14px;
+  }
+  button:hover { background: #7B2CBF; color: #FFF; }
+</style>
+</head>
+<body>
+  <h2>🐍 Jogo da Cobrinha</h2>
+  <canvas id="game" width="400" height="400" tabindex="0"></canvas>
+  <div class="info">Pontos: <span id="score">0</span> &nbsp;|&nbsp; Recorde: <span id="high">0</span></div>
+  <div class="status" id="status">Use as setas ⬆ ⬇ ⬅ ➡ para jogar</div>
+  <button onclick="userRestart()">🔄 Reiniciar</button>
+
+  <script>
+  (function () {
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const box = 20;
+    const cols = canvas.width / box;
+    const rows = canvas.height / box;
+
+    // Recorde atual do usuário (vindo do Streamlit via placeholder substituído)
+    let currentBest = __RECORDE_ATUAL__;
+
+    let snake, dir, nextDir, food, score, high, gameOver, loop;
+    // Flag: sinaliza que o jogador bateu o recorde atual nesta partida.
+    // Se estiver true e o usuário clicar em "Reiniciar", redirecionamos a
+    // página para salvar o novo recorde na planilha (via ?snake_record=N).
+    let pendingNewRecord = false;
+
+    high = currentBest;
+    document.getElementById('high').textContent = high;
+
+    function placeFood() {
+      let attempts = 0;
+      do {
+        food = {
+          x: Math.floor(Math.random() * cols),
+          y: Math.floor(Math.random() * rows)
+        };
+        attempts++;
+      } while (snake.some(s => s.x === food.x && s.y === food.y) && attempts < 500);
+    }
+
+    function resetGame() {
+      snake = [{x: 5, y: 5}, {x: 4, y: 5}, {x: 3, y: 5}];
+      dir = {x: 1, y: 0};
+      nextDir = {x: 1, y: 0};
+      score = 0;
+      gameOver = false;
+      pendingNewRecord = false;
+      document.getElementById('score').textContent = '0';
+      document.getElementById('status').textContent = 'Use as setas ⬆ ⬇ ⬅ ➡ para jogar';
+      placeFood();
+      if (loop) clearInterval(loop);
+      loop = setInterval(tick, 110);
+      draw();
+      canvas.focus();
+    }
+
+    // Chamado pelo botão "Reiniciar":
+    // - Se houve novo recorde nesta partida, salva via redirect (a página recarrega
+    //   e o Streamlit grava na planilha antes de voltar para esta aba).
+    // - Caso contrário, apenas reinicia a partida normalmente.
+    function userRestart() {
+      if (pendingNewRecord && score > 0) {
+        try {
+          const url = new URL(window.parent.location.href);
+          url.searchParams.set('snake_record', score);
+          window.parent.location.href = url.toString();
+          return;
+        } catch (e) {
+          // Se por algum motivo não conseguir redirecionar, segue com reset normal
+        }
+      }
+      resetGame();
+    }
+
+    function tick() {
+      if (gameOver) return;
+      dir = nextDir;
+
+      const head = {x: snake[0].x + dir.x, y: snake[0].y + dir.y};
+
+      if (
+        head.x < 0 || head.x >= cols ||
+        head.y < 0 || head.y >= rows ||
+        snake.some(s => s.x === head.x && s.y === head.y)
+      ) {
+        gameOver = true;
+        clearInterval(loop);
+        if (score > high) {
+          high = score;
+          document.getElementById('high').textContent = high;
+          pendingNewRecord = true;
+        }
+        document.getElementById('status').textContent =
+          '☠️ Game Over! Pontuação final: ' + score +
+          (pendingNewRecord ? ' — 🏆 Novo recorde! Clique em Reiniciar para salvar.' : '');
+        return;
+      }
+
+      snake.unshift(head);
+
+      if (head.x === food.x && head.y === food.y) {
+        score++;
+        document.getElementById('score').textContent = score;
+        placeFood();
+      } else {
+        snake.pop();
+      }
+
+      draw();
+    }
+
+    function draw() {
+      // Fundo
+      ctx.fillStyle = '#262730';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Grid sutil
+      ctx.strokeStyle = 'rgba(255, 216, 15, 0.08)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= cols; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * box + 0.5, 0);
+        ctx.lineTo(i * box + 0.5, canvas.height);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, i * box + 0.5);
+        ctx.lineTo(canvas.width, i * box + 0.5);
+        ctx.stroke();
+      }
+
+      // Comida
+      ctx.fillStyle = '#7B2CBF';
+      ctx.beginPath();
+      ctx.arc(food.x * box + box / 2, food.y * box + box / 2, box / 2 - 2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Cobra
+      snake.forEach((s, i) => {
+        if (i === 0) {
+          ctx.fillStyle = '#FFD80F';
+        } else {
+          const alpha = 0.55 + 0.4 * (1 - i / Math.max(1, snake.length));
+          ctx.fillStyle = 'rgba(255, 216, 15, ' + alpha + ')';
+        }
+        ctx.fillRect(s.x * box + 1, s.y * box + 1, box - 2, box - 2);
+      });
+    }
+
+    // Controles: setas do teclado. Previne scroll da página quando usadas.
+    window.addEventListener('keydown', function (e) {
+      const k = e.key;
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].indexOf(k) !== -1) {
+        e.preventDefault();
+      }
+      if (k === 'ArrowUp' && dir.y === 0) nextDir = {x: 0, y: -1};
+      else if (k === 'ArrowDown' && dir.y === 0) nextDir = {x: 0, y: 1};
+      else if (k === 'ArrowLeft' && dir.x === 0) nextDir = {x: -1, y: 0};
+      else if (k === 'ArrowRight' && dir.x === 0) nextDir = {x: 1, y: 0};
+    });
+
+    // Garante foco no canvas (necessário para o iframe receber teclado)
+    canvas.addEventListener('click', function () { canvas.focus(); });
+    window.addEventListener('load', function () { canvas.focus(); });
+
+    resetGame();
+  })();
+  </script>
+</body>
+</html>
+"""
+
+    # Injeta o recorde atual do usuário no HTML (evita escapar chaves em f-string)
+    SNAKE_HTML = SNAKE_HTML.replace("__RECORDE_ATUAL__", str(recorde_atual))
+
+    # Renderiza o jogo dentro de um iframe. Altura suficiente para caber o
+    # tabuleiro, os placares e o botão de reinício.
+    components.html(SNAKE_HTML, height=620, scrolling=False)
