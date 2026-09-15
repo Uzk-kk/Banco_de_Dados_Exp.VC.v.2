@@ -157,10 +157,10 @@ def ler_aba_padronizada(nome_aba, colunas_esperadas):
     try:
         df = conn.read(spreadsheet=url_planilha, worksheet=nome_aba, ttl=0)
     except Exception:
-        return pd.DataFrame(columns=colunas_esperadas)
+        return pd.DataFrame({c: pd.Series(dtype="object") for c in colunas_esperadas})
 
     if df is None or df.empty:
-        return pd.DataFrame(columns=colunas_esperadas)
+        return pd.DataFrame({c: pd.Series(dtype="object") for c in colunas_esperadas})
 
     df = df.loc[:, ~df.columns.duplicated()].copy()
 
@@ -168,7 +168,13 @@ def ler_aba_padronizada(nome_aba, colunas_esperadas):
         if col not in df.columns:
             df[col] = ""
 
-    return df[colunas_esperadas].copy()
+    df = df[colunas_esperadas].copy()
+
+    for col in df.columns:
+        df[col] = df[col].astype("object")
+        df[col] = df[col].where(pd.notna(df[col]), "")
+
+    return df
 
 def carregar_usuarios():
     usuarios = dict(USUARIOS_SECRETS)
@@ -234,6 +240,7 @@ def _valor_mudou(v_orig, v_edit):
 def _preparar_df_para_sheets(df):
     df_out = df.copy()
     for col in df_out.columns:
+        df_out[col] = df_out[col].astype("object")
         df_out[col] = df_out[col].apply(
             lambda x: "" if (x is None or (isinstance(x, float) and pd.isna(x)) or x is pd.NA or x is pd.NaT) else x
         )
@@ -262,6 +269,9 @@ def render_editor_com_edicao(df, nome_aba, colunas_auditoria, validacoes, key_pr
     )
 
     df_editado = tabela_editavel.drop(columns=["Excluir"]).reset_index(drop=True)
+
+    for col in df_editado.columns:
+        df_editado[col] = df_editado[col].astype("object")
 
     colunas_dados = [c for c in df_original.columns if c not in colunas_auditoria]
     alteracoes = {}
@@ -316,9 +326,14 @@ def render_editor_com_edicao(df, nome_aba, colunas_auditoria, validacoes, key_pr
                 else:
                     agora_str = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
                     usuario_atual = st.session_state.get("usuario_logado", "")
+
+                    for col_aud in colunas_auditoria:
+                        if col_aud in df_editado.columns:
+                            df_editado[col_aud] = df_editado[col_aud].astype("object")
+
                     for idx in indices_alterados:
-                        df_editado.at[idx, "Última Alteração Por"] = usuario_atual
-                        df_editado.at[idx, "Data da Alteração"] = agora_str
+                        df_editado.at[idx, "Última Alteração Por"] = str(usuario_atual)
+                        df_editado.at[idx, "Data da Alteração"] = str(agora_str)
 
                     df_para_salvar = _preparar_df_para_sheets(df_editado)
 
@@ -341,6 +356,9 @@ def render_editor_com_edicao(df, nome_aba, colunas_auditoria, validacoes, key_pr
                     )
                 else:
                     df_final = tabela_editavel[tabela_editavel["Excluir"] == False].drop(columns=["Excluir"])
+                    df_final = df_final.copy()
+                    for col in df_final.columns:
+                        df_final[col] = df_final[col].astype("object")
                     df_final = _preparar_df_para_sheets(df_final)
                     try:
                         conn.update(spreadsheet=url_planilha, worksheet=nome_aba, data=df_final)
@@ -588,7 +606,7 @@ if aba_selecionada == "Cadastro Rápido":
         df = ler_aba_padronizada("Cadastro Rápido", COLUNAS_CR)
     except Exception as e:
         st.error(f"Erro ao ler a aba 'Cadastro Rápido': {e}")
-        df = pd.DataFrame(columns=COLUNAS_CR)
+        df = pd.DataFrame({c: pd.Series(dtype="object") for c in COLUNAS_CR})
 
     if nivel in ["Editor", "Admin", "Con"] and not df.empty:
         st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
@@ -680,7 +698,7 @@ elif aba_selecionada == "Controle de Prestadores":
         df_p = ler_aba_padronizada("Controle de Prestadores", COLUNAS_CP)
     except Exception as e:
         st.error(f"Erro ao ler a aba 'Controle de Prestadores': {e}")
-        df_p = pd.DataFrame(columns=COLUNAS_CP)
+        df_p = pd.DataFrame({c: pd.Series(dtype="object") for c in COLUNAS_CP})
 
     if nivel in ["Editor", "Admin", "Con"] and not df_p.empty:
         st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
@@ -799,7 +817,7 @@ elif aba_selecionada == "Sublocatários":
         df_s = ler_aba_padronizada("Sublocatários", COLUNAS_SUB)
     except Exception as e:
         st.error(f"Erro ao ler a aba 'Sublocatários': {e}")
-        df_s = pd.DataFrame(columns=COLUNAS_SUB)
+        df_s = pd.DataFrame({c: pd.Series(dtype="object") for c in COLUNAS_SUB})
 
     if nivel in ["Editor", "Admin", "Con"] and not df_s.empty:
         st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
@@ -885,7 +903,7 @@ elif aba_selecionada == "Controle Gerentes de Loja":
         df_g = ler_aba_padronizada("Controle Gerentes de Loja", COLUNAS_G)
     except Exception as e:
         st.error(f"Erro ao ler a aba 'Controle Gerentes de Loja': {e}")
-        df_g = pd.DataFrame(columns=COLUNAS_G)
+        df_g = pd.DataFrame({c: pd.Series(dtype="object") for c in COLUNAS_G})
 
     if nivel in ["Editor", "Admin", "Con"] and not df_g.empty:
         st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
@@ -1009,7 +1027,7 @@ elif aba_selecionada == "Contas de Consumo":
         df_cc_view = ler_aba_padronizada("Contas de Consumo", COLUNAS_CC)
     except Exception as e:
         st.error(f"Erro ao ler a aba 'Contas de Consumo': {e}")
-        df_cc_view = pd.DataFrame(columns=COLUNAS_CC)
+        df_cc_view = pd.DataFrame({c: pd.Series(dtype="object") for c in COLUNAS_CC})
 
     if nivel in ["Editor", "Admin", "Con"] and not df_cc_view.empty:
         st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
@@ -1111,7 +1129,7 @@ elif aba_selecionada == "Controle de Acessos":
         df_ca_view = ler_aba_padronizada("Controle de Acessos", COLUNAS_CA)
     except Exception as e:
         st.error(f"Erro ao ler a aba 'Controle de Acessos': {e}")
-        df_ca_view = pd.DataFrame(columns=COLUNAS_CA)
+        df_ca_view = pd.DataFrame({c: pd.Series(dtype="object") for c in COLUNAS_CA})
 
     if nivel in ["Editor", "Admin", "Con"] and not df_ca_view.empty:
         st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
@@ -1195,7 +1213,7 @@ elif aba_selecionada == "Senhas Concessionárias":
         df_sc_view = ler_aba_padronizada("Senhas Concessionárias", COLUNAS_SC)
     except Exception as e:
         st.error(f"Erro ao ler a aba 'Senhas Concessionárias': {e}")
-        df_sc_view = pd.DataFrame(columns=COLUNAS_SC)
+        df_sc_view = pd.DataFrame({c: pd.Series(dtype="object") for c in COLUNAS_SC})
 
     if nivel in ["Editor", "Admin", "Con"] and not df_sc_view.empty:
         st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
@@ -1291,7 +1309,7 @@ elif aba_selecionada == "Espaços Disponíveis":
         df_esp_view = ler_aba_padronizada("Espaços Disponíveis", COLUNAS_ESP)
     except Exception as e:
         st.error(f"Erro ao ler a aba 'Espaços Disponíveis': {e}")
-        df_esp_view = pd.DataFrame(columns=COLUNAS_ESP)
+        df_esp_view = pd.DataFrame({c: pd.Series(dtype="object") for c in COLUNAS_ESP})
 
     if nivel in ["Editor", "Admin", "Con"] and not df_esp_view.empty:
         st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
@@ -1459,7 +1477,7 @@ elif aba_selecionada == "👥 Gerenciar Usuários":
     try:
         df_usr_rem = ler_aba_padronizada("Usuários", ["Usuário", "Senha", "Nível", "Cadastrado Por", "Data"])
     except Exception:
-        df_usr_rem = pd.DataFrame(columns=["Usuário", "Senha", "Nível", "Cadastrado Por", "Data"])
+        df_usr_rem = pd.DataFrame({c: pd.Series(dtype="object") for c in ["Usuário", "Senha", "Nível", "Cadastrado Por", "Data"]})
 
     if df_usr_rem.empty:
         st.info("Não há usuários cadastrados na planilha para remover.")
