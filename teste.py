@@ -6,7 +6,7 @@
 # Data de Criação: Set/2026
 # Atualização: Set/2026 (nível Con, gerenciamento de usuários, snake progressivo,
 #              rastreamento de autoria nos cadastros de usuários, edição inline
-#              de registros com auditoria de alteração e validações)
+#              de registros com auditoria de alteração e validação célula-a-célula)
 # ==============================================================================
 
 import datetime
@@ -213,6 +213,26 @@ def validar_campo(nome_campo, valor, regra):
             return False, "deve ser um valor numérico"
     return True, ""
 
+def _valor_mudou(v_orig, v_edit):
+    v_orig_vazio = pd.isna(v_orig) or str(v_orig).strip() == ""
+    v_edit_vazio = pd.isna(v_edit) or str(v_edit).strip() == ""
+
+    if v_orig_vazio and v_edit_vazio:
+        return False
+    if v_orig_vazio or v_edit_vazio:
+        return True
+
+    s1 = str(v_orig).strip()
+    s2 = str(v_edit).strip()
+
+    if s1 == s2:
+        return False
+
+    try:
+        return float(s1) != float(s2)
+    except (ValueError, TypeError):
+        return True
+
 def render_editor_com_edicao(df, nome_aba, colunas_auditoria, validacoes, key_prefix):
     for col_aud in colunas_auditoria:
         if col_aud not in df.columns:
@@ -237,18 +257,19 @@ def render_editor_com_edicao(df, nome_aba, colunas_auditoria, validacoes, key_pr
     df_editado = tabela_editavel.drop(columns=["Excluir"]).reset_index(drop=True)
 
     colunas_dados = [c for c in df_original.columns if c not in colunas_auditoria]
-    indices_alterados = []
+    alteracoes = {}
     for idx in df_original.index:
         if idx not in df_editado.index:
             continue
         for col in colunas_dados:
             if col not in df_editado.columns:
                 continue
-            v1 = str(df_original.loc[idx, col]).strip()
-            v2 = str(df_editado.loc[idx, col]).strip()
-            if v1 != v2:
-                indices_alterados.append(idx)
-                break
+            if _valor_mudou(df_original.loc[idx, col], df_editado.loc[idx, col]):
+                if idx not in alteracoes:
+                    alteracoes[idx] = {}
+                alteracoes[idx][col] = df_editado.loc[idx, col]
+
+    indices_alterados = sorted(alteracoes.keys())
 
     linhas_marcadas_excluir = tabela_editavel[tabela_editavel["Excluir"] == True]
     indices_excluir = linhas_marcadas_excluir.index.tolist()
@@ -270,17 +291,21 @@ def render_editor_com_edicao(df, nome_aba, colunas_auditoria, validacoes, key_pr
                 st.warning("Nenhuma alteração detectada para salvar.")
             else:
                 erros = []
-                for idx in indices_alterados:
-                    row = df_editado.loc[idx]
-                    for col, regra in validacoes.items():
-                        if col in row:
-                            ok, msg = validar_campo(col, row[col], regra)
+                for idx, cells in alteracoes.items():
+                    for col, novo_valor in cells.items():
+                        if col in validacoes:
+                            ok, msg = validar_campo(col, novo_valor, validacoes[col])
                             if not ok:
                                 erros.append(f"Linha {idx + 1} → {col}: {msg}")
 
                 if erros:
                     for e in erros:
                         st.error(e)
+                    st.info(
+                        "💡 Apenas as células que você editou são validadas. "
+                        "Dados pré-existentes na planilha que não passam nas regras "
+                        "não bloqueiam o salvamento."
+                    )
                 else:
                     agora_str = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
                     usuario_atual = st.session_state.get("usuario_logado", "")
