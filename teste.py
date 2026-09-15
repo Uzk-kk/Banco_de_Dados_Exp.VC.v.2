@@ -4,6 +4,8 @@
 # Propriedade Intelectual e Desenvolvimento: Raphael Santos
 # Licença: Uso Exclusivo Autorizado - Proibida Replicação ou Alteração sem Autorização
 # Data de Criação: Set/2026
+# Atualização: Set/2026 (ajuste visual dos botões: texto roxo em fundo amarelo,
+#              invertendo no hover para texto amarelo em fundo roxo)
 # ==============================================================================
 
 import datetime
@@ -48,21 +50,50 @@ st.markdown(
     }
 
     [data-testid="stForm"] { border: none !important; padding: 0 !important; }
-    
+
     div.stButton > button, div[data-testid="stFormSubmitButton"] > button { 
         background-color: #FFD80F !important; 
-        color: #000000 !important; 
+        color: #7B2CBF !important; 
         border-radius: 8px !important; 
         border: none !important; 
         padding: 10px 24px !important; 
         font-weight: bold !important; 
     }
+
+    div.stButton > button p,
+    div.stButton > button span,
+    div.stButton > button div,
+    div.stButton > button label,
+    div[data-testid="stFormSubmitButton"] > button p,
+    div[data-testid="stFormSubmitButton"] > button span,
+    div[data-testid="stFormSubmitButton"] > button div,
+    div[data-testid="stFormSubmitButton"] > button label {
+        color: #7B2CBF !important;
+        font-weight: bold !important;
+    }
+
     div.stButton > button:hover, div[data-testid="stFormSubmitButton"] > button:hover { 
         background-color: #7B2CBF !important; 
-        color: #FFFFFF !important; 
+        color: #FFD80F !important; 
     }
-    
-    div.element-container:has(#secret-btn-marker) + div.element-container button {
+
+    div.stButton > button:hover p,
+    div.stButton > button:hover span,
+    div.stButton > button:hover div,
+    div.stButton > button:hover label,
+    div[data-testid="stFormSubmitButton"] > button:hover p,
+    div[data-testid="stFormSubmitButton"] > button:hover span,
+    div[data-testid="stFormSubmitButton"] > button:hover div,
+    div[data-testid="stFormSubmitButton"] > button:hover label {
+        color: #FFD80F !important;
+        font-weight: bold !important;
+    }
+
+    div.element-container:has(#secret-btn-marker) + div.element-container button,
+    div.element-container:has(#secret-btn-marker) + div.element-container button p,
+    div.element-container:has(#secret-btn-marker) + div.element-container button span,
+    div.element-container:has(#secret-btn-marker) + div.element-container button div,
+    div.element-container:has(#secret-btn-marker) + div.element-container button label {
         background-color: transparent !important;
         border: none !important;
         color: transparent !important;
@@ -73,7 +104,11 @@ st.markdown(
         margin-top: 20px !important;
         cursor: default !important;
     }
-    div.element-container:has(#secret-btn-marker) + div.element-container button:hover {
+    div.element-container:has(#secret-btn-marker) + div.element-container button:hover,
+    div.element-container:has(#secret-btn-marker) + div.element-container button:hover p,
+    div.element-container:has(#secret-btn-marker) + div.element-container button:hover span,
+    div.element-container:has(#secret-btn-marker) + div.element-container button:hover div,
+    div.element-container:has(#secret-btn-marker) + div.element-container button:hover label {
         background-color: transparent !important;
         color: transparent !important;
         border: none !important;
