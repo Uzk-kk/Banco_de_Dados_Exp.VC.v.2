@@ -4,7 +4,6 @@
 # Propriedade Intelectual e Desenvolvimento: Raphael Santos
 # Licença: Uso Exclusivo Autorizado - Proibida Replicação ou Alteração sem Autorização
 # Data de Criação: Set/2026
-# Atualização: Set/2026 (nível Con, tela de gerenciamento de usuários, snake progressivo)
 # ==============================================================================
 
 import datetime
@@ -133,11 +132,6 @@ st.markdown(
         z-index: 9999;
         border-top: 1px solid #FFD80F;
     }
-    
-    /* Adiciona um espaço no final da página para o conteúdo não ser coberto pelo rodapé */
-    .stAppViewMain .main .block-container {
-        padding-bottom: 80px !important;
-    }
     </style>
     <div class="footer-autoria">
         Desenvolvido exclusivamente por Raphael Santos | © Todos os direitos reservados
@@ -188,6 +182,8 @@ def carregar_usuarios():
                 usuarios[u] = {
                     "senha": str(row.get("Senha", "")).strip(),
                     "nivel": str(row.get("Nível", "")).strip(),
+                    "cadastrado_por": str(row.get("Cadastrado Por", "")).strip(),
+                    "data": str(row.get("Data", "")).strip(),
                 }
     except Exception:
         pass
@@ -1191,10 +1187,13 @@ elif aba_selecionada == "👥 Gerenciar Usuários":
     usuarios_atuais = carregar_usuarios()
     lista_usuarios = []
     for user, dados in usuarios_atuais.items():
+        eh_secret = user in USUARIOS_SECRETS
         lista_usuarios.append({
             "Usuário": user,
             "Nível": dados.get("nivel", ""),
-            "Origem": "Secrets (bootstrap)" if user in USUARIOS_SECRETS else "Planilha",
+            "Origem": "Secrets (bootstrap)" if eh_secret else "Planilha",
+            "Cadastrado Por": dados.get("cadastrado_por", "") or ("Bootstrap (servidor)" if eh_secret else ""),
+            "Data": dados.get("data", ""),
         })
     if lista_usuarios:
         df_usuarios_vis = pd.DataFrame(lista_usuarios)
@@ -1205,7 +1204,7 @@ elif aba_selecionada == "👥 Gerenciar Usuários":
 
     secrets_pendentes = []
     try:
-        df_usr_check = ler_aba_padronizada("Usuários", ["Usuário", "Senha", "Nível"])
+        df_usr_check = ler_aba_padronizada("Usuários", ["Usuário", "Senha", "Nível", "Cadastrado Por", "Data"])
         usuarios_planilha_lower = set(
             df_usr_check["Usuário"].astype(str).str.strip().str.lower().tolist()
         )
@@ -1222,11 +1221,12 @@ elif aba_selecionada == "👥 Gerenciar Usuários":
         )
         if st.button("🔄 Sincronizar Secrets para Planilha"):
             try:
-                df_usr_sync = ler_aba_padronizada("Usuários", ["Usuário", "Senha", "Nível"])
+                df_usr_sync = ler_aba_padronizada("Usuários", ["Usuário", "Senha", "Nível", "Cadastrado Por", "Data"])
                 usuarios_planilha_lower = set(
                     df_usr_sync["Usuário"].astype(str).str.strip().str.lower().tolist()
                 )
                 novas_linhas = []
+                agora_str = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
                 for user_secret, dados_secret in USUARIOS_SECRETS.items():
                     if user_secret in usuarios_planilha_lower:
                         continue
@@ -1234,13 +1234,18 @@ elif aba_selecionada == "👥 Gerenciar Usuários":
                         "Usuário": user_secret,
                         "Senha": str(dados_secret.get("senha", "")).strip(),
                         "Nível": str(dados_secret.get("nivel", "")).strip(),
+                        "Cadastrado Por": "Bootstrap (servidor)",
+                        "Data": agora_str,
                     })
                 if novas_linhas:
                     df_usr_sync = pd.concat(
                         [df_usr_sync, pd.DataFrame(novas_linhas)],
                         ignore_index=True,
                     )
-                    df_usr_sync = df_usr_sync[["Usuário", "Senha", "Nível"]]
+                    for col_sync in ["Usuário", "Senha", "Nível", "Cadastrado Por", "Data"]:
+                        if col_sync not in df_usr_sync.columns:
+                            df_usr_sync[col_sync] = ""
+                    df_usr_sync = df_usr_sync[["Usuário", "Senha", "Nível", "Cadastrado Por", "Data"]]
                     conn.update(spreadsheet=url_planilha, worksheet="Usuários", data=df_usr_sync)
                     st.success(f"{len(novas_linhas)} usuário(s) sincronizado(s) com sucesso!")
                     st.rerun()
@@ -1275,13 +1280,19 @@ elif aba_selecionada == "👥 Gerenciar Usuários":
             st.error(f"O usuário '{user_limpo}' já existe (secrets ou planilha).")
         else:
             try:
-                df_usr = ler_aba_padronizada("Usuários", ["Usuário", "Senha", "Nível"])
+                df_usr = ler_aba_padronizada("Usuários", ["Usuário", "Senha", "Nível", "Cadastrado Por", "Data"])
                 nova_linha = pd.DataFrame([{
                     "Usuário": user_limpo,
                     "Senha": gerar_hash_senha(senha_limpa),
                     "Nível": novo_nivel,
+                    "Cadastrado Por": st.session_state.get("usuario_logado", ""),
+                    "Data": datetime.datetime.now().strftime("%d/%m/%Y %H:%M"),
                 }])
                 df_usr = pd.concat([df_usr, nova_linha], ignore_index=True)
+                for col_add in ["Usuário", "Senha", "Nível", "Cadastrado Por", "Data"]:
+                    if col_add not in df_usr.columns:
+                        df_usr[col_add] = ""
+                df_usr = df_usr[["Usuário", "Senha", "Nível", "Cadastrado Por", "Data"]]
                 conn.update(spreadsheet=url_planilha, worksheet="Usuários", data=df_usr)
                 st.success(f"Usuário '{user_limpo}' adicionado com sucesso como {novo_nivel}!")
                 st.rerun()
@@ -1292,9 +1303,9 @@ elif aba_selecionada == "👥 Gerenciar Usuários":
 
     st.subheader("🗑️ Remover Usuário")
     try:
-        df_usr_rem = ler_aba_padronizada("Usuários", ["Usuário", "Senha", "Nível"])
+        df_usr_rem = ler_aba_padronizada("Usuários", ["Usuário", "Senha", "Nível", "Cadastrado Por", "Data"])
     except Exception:
-        df_usr_rem = pd.DataFrame(columns=["Usuário", "Senha", "Nível"])
+        df_usr_rem = pd.DataFrame(columns=["Usuário", "Senha", "Nível", "Cadastrado Por", "Data"])
 
     if df_usr_rem.empty:
         st.info("Não há usuários cadastrados na planilha para remover.")
