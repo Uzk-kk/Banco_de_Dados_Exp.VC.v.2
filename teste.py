@@ -120,7 +120,7 @@ st.markdown(
     }
 
     .footer-autoria {
-        position: fixed;
+        position: relative;
         left: 0;
         bottom: 0;
         width: 100%;
@@ -132,6 +132,7 @@ st.markdown(
         font-weight: bold;
         z-index: 9999;
         border-top: 1px solid #FFD80F;
+        margin-top: 40px; /* Adiciona uma margem superior para afastar do conteúdo */
     }
     </style>
     <div class="footer-autoria">
