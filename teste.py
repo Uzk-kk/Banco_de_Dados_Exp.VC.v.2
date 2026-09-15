@@ -4,19 +4,14 @@
 # Propriedade Intelectual e Desenvolvimento: Raphael Santos
 # Licença: Uso Exclusivo Autorizado - Proibida Replicação ou Alteração sem Autorização
 # Data de Criação: Set/2026
-# Atualização de Segurança: Set/2026 (token de sessão, hash de senha, rate limiting)
-# Atualização: Set/2026 (adição das páginas: Contas de Consumo, Controle de Acessos,
-#              Senhas Concessionárias e Espaços Disponíveis)
-# Correção: Set/2026 (helper de leitura padronizada das abas para evitar erro
-#           "WorksheetNotFound" e colunas duplicadas nas novas páginas)
 # ==============================================================================
 
 import datetime
 import random
-import secrets  # ADICIONADO: geração de tokens de sessão aleatórios e seguros
-import hashlib  # ADICIONADO: hash de senhas (nunca mais salvar senha em texto puro)
-import hmac     # ADICIONADO: comparação de senha em tempo constante (evita timing attack)
-import time     # ADICIONADO: controle de tentativas de login (rate limiting)
+import secrets  
+import hashlib  
+import hmac     
+import time     
 import pandas as pd
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
