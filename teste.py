@@ -4,6 +4,9 @@
 # Propriedade Intelectual e Desenvolvimento: Raphael Santos
 # Licença: Uso Exclusivo Autorizado - Proibida Replicação ou Alteração sem Autorização
 # Data de Criação: Set/2026
+# Atualização: Set/2026 (nível Con, gerenciamento de usuários, snake progressivo,
+#              rastreamento de autoria nos cadastros de usuários, edição inline
+#              de registros com auditoria de alteração e validações)
 # ==============================================================================
 
 import datetime
@@ -189,6 +192,120 @@ def carregar_usuarios():
         pass
     return usuarios
 
+def validar_campo(nome_campo, valor, regra):
+    v = str(valor).strip()
+    if regra == "uf":
+        if len(v) != 2 or not v.isalpha():
+            return False, "deve conter exatamente 2 letras (ex: SP, RJ)"
+    elif regra == "telefone":
+        if not v.isdigit() or len(v) != 11:
+            return False, "deve conter exatamente 11 dígitos numéricos"
+    elif regra == "cpf_cnpj":
+        if not v.isdigit():
+            return False, "deve conter apenas números"
+    elif regra == "m2":
+        num_str = v.replace("m²", "").replace("m2", "").strip()
+        try:
+            num = float(num_str)
+            if num <= 0:
+                return False, "deve ser maior que zero"
+        except ValueError:
+            return False, "deve ser um valor numérico"
+    return True, ""
+
+def render_editor_com_edicao(df, nome_aba, colunas_auditoria, validacoes, key_prefix):
+    for col_aud in colunas_auditoria:
+        if col_aud not in df.columns:
+            df[col_aud] = ""
+
+    df_original = df.reset_index(drop=True).copy()
+    df_editor = df.copy()
+    df_editor.insert(0, "Excluir", False)
+
+    colunas_disabled = ["Cadastrado Por"] + colunas_auditoria
+    colunas_disabled = [c for c in colunas_disabled if c in df_editor.columns]
+
+    tabela_editavel = st.data_editor(
+        df_editor,
+        hide_index=True,
+        use_container_width=True,
+        num_rows="fixed",
+        disabled=colunas_disabled,
+        key=f"editor_{key_prefix}"
+    )
+
+    df_editado = tabela_editavel.drop(columns=["Excluir"]).reset_index(drop=True)
+
+    colunas_dados = [c for c in df_original.columns if c not in colunas_auditoria]
+    indices_alterados = []
+    for idx in df_original.index:
+        if idx not in df_editado.index:
+            continue
+        for col in colunas_dados:
+            if col not in df_editado.columns:
+                continue
+            v1 = str(df_original.loc[idx, col]).strip()
+            v2 = str(df_editado.loc[idx, col]).strip()
+            if v1 != v2:
+                indices_alterados.append(idx)
+                break
+
+    linhas_marcadas_excluir = tabela_editavel[tabela_editavel["Excluir"] == True]
+    indices_excluir = linhas_marcadas_excluir.index.tolist()
+    conflitos = sorted(set(indices_alterados) & set(indices_excluir))
+
+    if indices_alterados:
+        st.warning(f"⚠️ Você tem {len(indices_alterados)} linha(s) com alterações não salvas. Clique em 'Salvar Alterações' para aplicar.")
+
+    col_btn1, col_btn2 = st.columns([1, 1])
+
+    with col_btn1:
+        if st.button("💾 Salvar Alterações", key=f"salvar_{key_prefix}"):
+            if conflitos:
+                st.error(
+                    "Conflito detectado: você não pode editar e marcar para excluir a mesma linha ao mesmo tempo. "
+                    f"Linhas em conflito: {[i + 1 for i in conflitos]}. Desmarque 'Excluir' ou desfaça a edição."
+                )
+            elif not indices_alterados:
+                st.warning("Nenhuma alteração detectada para salvar.")
+            else:
+                erros = []
+                for idx in indices_alterados:
+                    row = df_editado.loc[idx]
+                    for col, regra in validacoes.items():
+                        if col in row:
+                            ok, msg = validar_campo(col, row[col], regra)
+                            if not ok:
+                                erros.append(f"Linha {idx + 1} → {col}: {msg}")
+
+                if erros:
+                    for e in erros:
+                        st.error(e)
+                else:
+                    agora_str = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+                    usuario_atual = st.session_state.get("usuario_logado", "")
+                    for idx in indices_alterados:
+                        df_editado.at[idx, "Última Alteração Por"] = usuario_atual
+                        df_editado.at[idx, "Data da Alteração"] = agora_str
+
+                    conn.update(spreadsheet=url_planilha, worksheet=nome_aba, data=df_editado)
+                    st.success(f"{len(indices_alterados)} linha(s) atualizada(s) com sucesso!")
+                    st.rerun()
+
+    with col_btn2:
+        if not linhas_marcadas_excluir.empty:
+            if st.button("Confirmar Exclusão dos Selecionados", key=f"excluir_{key_prefix}"):
+                if conflitos:
+                    st.error(
+                        "Conflito detectado: você não pode editar e excluir a mesma linha ao mesmo tempo. "
+                        f"Desfaça as edições das linhas: {[i + 1 for i in conflitos]}."
+                    )
+                else:
+                    df_final = tabela_editavel[tabela_editavel["Excluir"] == False].drop(columns=["Excluir"])
+                    conn.update(spreadsheet=url_planilha, worksheet=nome_aba, data=df_final)
+                    st.success("Registro(s) removido(s) com sucesso!")
+                    st.rerun()
+
 @st.cache_resource
 def obter_armazenamento_sessoes():
     return {}
@@ -361,6 +478,11 @@ if st.sidebar.button(" ", key="btn_secreto"):
 if aba_selecionada == "Cadastro Rápido":
     st.title("Cadastro Rápido de Dados")
 
+    COLUNAS_CR = [
+        "Loja", "Nome Completo", "Endereço", "Telefone", "E-mail", "Status",
+        "Cadastrado Por", "Última Alteração Por", "Data da Alteração",
+    ]
+
     if nivel in ["Editor", "Admin", "Con"]:
         with st.form("form_cadastro", clear_on_submit=True):
             campo1 = st.text_input("Loja")
@@ -382,7 +504,7 @@ if aba_selecionada == "Cadastro Rápido":
                 st.error("O telefone deve conter exatamente 11 dígitos (ex: DDD + Número)!")
             else:
                 try:
-                    df_existente = conn.read(spreadsheet=url_planilha, worksheet="Cadastro Rápido", ttl=0)
+                    df_existente = ler_aba_padronizada("Cadastro Rápido", COLUNAS_CR)
 
                     novo_dado = pd.DataFrame(
                         [
@@ -394,11 +516,14 @@ if aba_selecionada == "Cadastro Rápido":
                                 "E-mail": campo5,
                                 "Status": campo6,
                                 "Cadastrado Por": st.session_state["usuario_logado"],
+                                "Última Alteração Por": "",
+                                "Data da Alteração": "",
                             }
                         ]
                     )
 
                     df_atualizado = pd.concat([df_existente, novo_dado], ignore_index=True)
+                    df_atualizado = df_atualizado[COLUNAS_CR]
                     conn.update(spreadsheet=url_planilha, worksheet="Cadastro Rápido", data=df_atualizado)
 
                     st.success("Dados salvos com sucesso no Google Sheets!")
@@ -412,29 +537,17 @@ if aba_selecionada == "Cadastro Rápido":
     st.subheader("Visualização do Banco de Dados - Cadastros")
 
     try:
-        df = conn.read(spreadsheet=url_planilha, worksheet="Cadastro Rápido", ttl=0)
-        
-        if nivel in ["Admin", "Con"] and not df.empty:
-            st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
-            
-            df_editor = df.copy()
-            df_editor.insert(0, "Excluir", False)
-            
-            tabela_editavel = st.data_editor(
-                df_editor,
-                hide_index=True,
-                use_container_width=True,
-                num_rows="fixed"
+        df = ler_aba_padronizada("Cadastro Rápido", COLUNAS_CR)
+
+        if nivel in ["Editor", "Admin", "Con"] and not df.empty:
+            st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
+            render_editor_com_edicao(
+                df,
+                nome_aba="Cadastro Rápido",
+                colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
+                validacoes={"Telefone": "telefone"},
+                key_prefix="cadastro_rapido",
             )
-            
-            linhas_para_remover = tabela_editavel[tabela_editavel["Excluir"] == True]
-            
-            if not linhas_para_remover.empty:
-                if st.button("Confirmar Exclusão dos Selecionados"):
-                    df_atualizado = tabela_editavel[tabela_editavel["Excluir"] == False].drop(columns=["Excluir"])
-                    conn.update(spreadsheet=url_planilha, worksheet="Cadastro Rápido", data=df_atualizado)
-                    st.success("Registro(s) removido(s) com sucesso!")
-                    st.rerun()
         else:
             st.dataframe(df, use_container_width=True)
 
@@ -443,6 +556,12 @@ if aba_selecionada == "Cadastro Rápido":
 
 elif aba_selecionada == "Controle de Prestadores":
     st.title("Controle de Prestadores de Serviço")
+
+    COLUNAS_CP = [
+        "Região", "Prestador de Serviço", "Serviços", "Telefone", "E-mail",
+        "Avaliação de 0 a 5", "Prazo pag.", "NF.",
+        "Cadastrado Por", "Última Alteração Por", "Data da Alteração",
+    ]
 
     if nivel in ["Editor", "Admin", "Con"]:
         with st.form("form_prestadores", clear_on_submit=True):
@@ -470,7 +589,7 @@ elif aba_selecionada == "Controle de Prestadores":
                 st.error("O campo 'Telefone' deve conter exatamente 11 dígitos numéricos!")
             else:
                 try:
-                    df_prestadores = conn.read(spreadsheet=url_planilha, worksheet="Controle de Prestadores", ttl=0)
+                    df_prestadores = ler_aba_padronizada("Controle de Prestadores", COLUNAS_CP)
 
                     novo_prestador = pd.DataFrame(
                         [
@@ -484,11 +603,14 @@ elif aba_selecionada == "Controle de Prestadores":
                                 "Prazo pag.": p_prazo,
                                 "NF.": p_nf,
                                 "Cadastrado Por": st.session_state["usuario_logado"],
+                                "Última Alteração Por": "",
+                                "Data da Alteração": "",
                             }
                         ]
                     )
 
                     df_p_atualizado = pd.concat([df_prestadores, novo_prestador], ignore_index=True)
+                    df_p_atualizado = df_p_atualizado[COLUNAS_CP]
                     conn.update(spreadsheet=url_planilha, worksheet="Controle de Prestadores", data=df_p_atualizado)
 
                     st.success("Prestador cadastrado com sucesso!")
@@ -502,29 +624,17 @@ elif aba_selecionada == "Controle de Prestadores":
     st.subheader("Visualização do Banco de Dados - Prestadores")
 
     try:
-        df_p = conn.read(spreadsheet=url_planilha, worksheet="Controle de Prestadores", ttl=0)
-        
-        if nivel in ["Admin", "Con"] and not df_p.empty:
-            st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
-            
-            df_p_editor = df_p.copy()
-            df_p_editor.insert(0, "Excluir", False)
-            
-            tabela_p_editavel = st.data_editor(
-                df_p_editor,
-                hide_index=True,
-                use_container_width=True,
-                num_rows="fixed"
+        df_p = ler_aba_padronizada("Controle de Prestadores", COLUNAS_CP)
+
+        if nivel in ["Editor", "Admin", "Con"] and not df_p.empty:
+            st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
+            render_editor_com_edicao(
+                df_p,
+                nome_aba="Controle de Prestadores",
+                colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
+                validacoes={"Telefone": "telefone"},
+                key_prefix="prestadores",
             )
-            
-            linhas_p_remover = tabela_p_editavel[tabela_p_editavel["Excluir"] == True]
-            
-            if not linhas_p_remover.empty:
-                if st.button("Confirmar Exclusão dos Prestadores Selecionados"):
-                    df_p_atualizado = tabela_p_editavel[tabela_p_editavel["Excluir"] == False].drop(columns=["Excluir"])
-                    conn.update(spreadsheet=url_planilha, worksheet="Controle de Prestadores", data=df_p_atualizado)
-                    st.success("Prestador(es) removido(s) com sucesso!")
-                    st.rerun()
         else:
             st.dataframe(df_p, use_container_width=True)
 
@@ -533,6 +643,16 @@ elif aba_selecionada == "Controle de Prestadores":
 
 elif aba_selecionada == "Sublocatários":
     st.title("Controle de Sublocatários")
+
+    COLUNAS_SUB = [
+        "Loja", "Endereço", "Nome completo", "Telefone",
+        "Nome do representante legal", "E-mail",
+        "Data de inicio", "Data de encerramento",
+        "Tipo de espaço", "Metragem ocupada",
+        "Demanda de energia", "Pontos de consumo", "Segmento",
+        "Horário de funcionamento",
+        "Cadastrado Por", "Última Alteração Por", "Data da Alteração",
+    ]
 
     if nivel in ["Editor", "Admin", "Con"]:
         with st.form("form_sublocatarios", clear_on_submit=True):
@@ -573,7 +693,7 @@ elif aba_selecionada == "Sublocatários":
                 st.error("A 'Metragem ocupada' deve ser maior que zero!")
             else:
                 try:
-                    df_sub = conn.read(spreadsheet=url_planilha, worksheet="Sublocatários", ttl=0)
+                    df_sub = ler_aba_padronizada("Sublocatários", COLUNAS_SUB)
 
                     metragem_formatada = f"{sub_metragem_num:g} m²"
                     data_ini_str = sub_data_inicio.strftime("%d/%m/%Y")
@@ -597,11 +717,14 @@ elif aba_selecionada == "Sublocatários":
                                 "Segmento": sub_segmento,
                                 "Horário de funcionamento": sub_horario,
                                 "Cadastrado Por": st.session_state["usuario_logado"],
+                                "Última Alteração Por": "",
+                                "Data da Alteração": "",
                             }
                         ]
                     )
 
                     df_sub_atualizado = pd.concat([df_sub, novo_sublocatario], ignore_index=True)
+                    df_sub_atualizado = df_sub_atualizado[COLUNAS_SUB]
                     conn.update(spreadsheet=url_planilha, worksheet="Sublocatários", data=df_sub_atualizado)
 
                     st.success("Sublocatário cadastrado com sucesso!")
@@ -615,29 +738,17 @@ elif aba_selecionada == "Sublocatários":
     st.subheader("Visualização do Banco de Dados - Sublocatários")
 
     try:
-        df_s = conn.read(spreadsheet=url_planilha, worksheet="Sublocatários", ttl=0)
+        df_s = ler_aba_padronizada("Sublocatários", COLUNAS_SUB)
 
-        if nivel in ["Admin", "Con"] and not df_s.empty:
-            st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
-
-            df_s_editor = df_s.copy()
-            df_s_editor.insert(0, "Excluir", False)
-
-            tabela_s_editavel = st.data_editor(
-                df_s_editor,
-                hide_index=True,
-                use_container_width=True,
-                num_rows="fixed"
+        if nivel in ["Editor", "Admin", "Con"] and not df_s.empty:
+            st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
+            render_editor_com_edicao(
+                df_s,
+                nome_aba="Sublocatários",
+                colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
+                validacoes={"Telefone": "telefone", "Metragem ocupada": "m2"},
+                key_prefix="sublocatarios",
             )
-
-            linhas_s_remover = tabela_s_editavel[tabela_s_editavel["Excluir"] == True]
-
-            if not linhas_s_remover.empty:
-                if st.button("Confirmar Exclusão dos Sublocatários Selecionados"):
-                    df_s_atualizado = tabela_s_editavel[tabela_s_editavel["Excluir"] == False].drop(columns=["Excluir"])
-                    conn.update(spreadsheet=url_planilha, worksheet="Sublocatários", data=df_s_atualizado)
-                    st.success("Sublocatário(s) removido(s) com sucesso!")
-                    st.rerun()
         else:
             st.dataframe(df_s, use_container_width=True)
 
@@ -646,6 +757,11 @@ elif aba_selecionada == "Sublocatários":
 
 elif aba_selecionada == "Controle Gerentes de Loja":
     st.title("Controle Gerentes de Loja")
+
+    COLUNAS_G = [
+        "Loja", "Nome", "Telefone", "E-mail", "Cargo",
+        "Cadastrado Por", "Última Alteração Por", "Data da Alteração",
+    ]
 
     if nivel in ["Editor", "Admin", "Con"]:
         with st.form("form_gerentes", clear_on_submit=True):
@@ -671,7 +787,7 @@ elif aba_selecionada == "Controle Gerentes de Loja":
                 st.error("O campo 'Telefone' deve conter exatamente 11 dígitos numéricos!")
             else:
                 try:
-                    df_gerentes = conn.read(spreadsheet=url_planilha, worksheet="Controle Gerentes de Loja", ttl=0)
+                    df_gerentes = ler_aba_padronizada("Controle Gerentes de Loja", COLUNAS_G)
 
                     novo_gerente = pd.DataFrame(
                         [
@@ -682,11 +798,14 @@ elif aba_selecionada == "Controle Gerentes de Loja":
                                 "E-mail": g_email,
                                 "Cargo": g_cargo,
                                 "Cadastrado Por": st.session_state["usuario_logado"],
+                                "Última Alteração Por": "",
+                                "Data da Alteração": "",
                             }
                         ]
                     )
 
                     df_g_atualizado = pd.concat([df_gerentes, novo_gerente], ignore_index=True)
+                    df_g_atualizado = df_g_atualizado[COLUNAS_G]
                     conn.update(spreadsheet=url_planilha, worksheet="Controle Gerentes de Loja", data=df_g_atualizado)
 
                     st.success("Gerente cadastrado com sucesso!")
@@ -700,29 +819,17 @@ elif aba_selecionada == "Controle Gerentes de Loja":
     st.subheader("Visualização do Banco de Dados - Gerentes de Loja")
 
     try:
-        df_g = conn.read(spreadsheet=url_planilha, worksheet="Controle Gerentes de Loja", ttl=0)
+        df_g = ler_aba_padronizada("Controle Gerentes de Loja", COLUNAS_G)
 
-        if nivel in ["Admin", "Con"] and not df_g.empty:
-            st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
-
-            df_g_editor = df_g.copy()
-            df_g_editor.insert(0, "Excluir", False)
-
-            tabela_g_editavel = st.data_editor(
-                df_g_editor,
-                hide_index=True,
-                use_container_width=True,
-                num_rows="fixed"
+        if nivel in ["Editor", "Admin", "Con"] and not df_g.empty:
+            st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
+            render_editor_com_edicao(
+                df_g,
+                nome_aba="Controle Gerentes de Loja",
+                colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
+                validacoes={"Telefone": "telefone"},
+                key_prefix="gerentes",
             )
-
-            linhas_g_remover = tabela_g_editavel[tabela_g_editavel["Excluir"] == True]
-
-            if not linhas_g_remover.empty:
-                if st.button("Confirmar Exclusão dos Gerentes Selecionados"):
-                    df_g_atualizado = tabela_g_editavel[tabela_g_editavel["Excluir"] == False].drop(columns=["Excluir"])
-                    conn.update(spreadsheet=url_planilha, worksheet="Controle Gerentes de Loja", data=df_g_atualizado)
-                    st.success("Gerente(s) removido(s) com sucesso!")
-                    st.rerun()
         else:
             st.dataframe(df_g, use_container_width=True)
 
@@ -739,7 +846,7 @@ elif aba_selecionada == "Contas de Consumo":
         "Telefone", "Documento do titular",
         "Protocolo energia", "Protocolo água",
         "Nome", "CPF/CNPJ", "E-mail",
-        "Cadastrado Por",
+        "Cadastrado Por", "Última Alteração Por", "Data da Alteração",
     ]
 
     if nivel in ["Editor", "Admin", "Con"]:
@@ -810,13 +917,14 @@ elif aba_selecionada == "Contas de Consumo":
                                 "CPF/CNPJ": str(cc_cpf_cnpj),
                                 "E-mail": cc_email,
                                 "Cadastrado Por": st.session_state["usuario_logado"],
+                                "Última Alteração Por": "",
+                                "Data da Alteração": "",
                             }
                         ]
                     )
 
                     df_cc_atualizado = pd.concat([df_cc, nova_conta], ignore_index=True)
                     df_cc_atualizado = df_cc_atualizado[COLUNAS_CC]
-
                     conn.update(spreadsheet=url_planilha, worksheet="Contas de Consumo", data=df_cc_atualizado)
 
                     st.success("Conta de consumo cadastrada com sucesso!")
@@ -832,27 +940,15 @@ elif aba_selecionada == "Contas de Consumo":
     try:
         df_cc_view = ler_aba_padronizada("Contas de Consumo", COLUNAS_CC)
 
-        if nivel in ["Admin", "Con"] and not df_cc_view.empty:
-            st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
-
-            df_cc_editor = df_cc_view.copy()
-            df_cc_editor.insert(0, "Excluir", False)
-
-            tabela_cc_editavel = st.data_editor(
-                df_cc_editor,
-                hide_index=True,
-                use_container_width=True,
-                num_rows="fixed"
+        if nivel in ["Editor", "Admin", "Con"] and not df_cc_view.empty:
+            st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
+            render_editor_com_edicao(
+                df_cc_view,
+                nome_aba="Contas de Consumo",
+                colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
+                validacoes={"UF": "uf", "Telefone": "telefone", "CPF/CNPJ": "cpf_cnpj"},
+                key_prefix="contas_consumo",
             )
-
-            linhas_cc_remover = tabela_cc_editavel[tabela_cc_editavel["Excluir"] == True]
-
-            if not linhas_cc_remover.empty:
-                if st.button("Confirmar Exclusão das Contas de Consumo Selecionadas"):
-                    df_cc_final = tabela_cc_editavel[tabela_cc_editavel["Excluir"] == False].drop(columns=["Excluir"])
-                    conn.update(spreadsheet=url_planilha, worksheet="Contas de Consumo", data=df_cc_final)
-                    st.success("Conta(s) de consumo removida(s) com sucesso!")
-                    st.rerun()
         else:
             st.dataframe(df_cc_view, use_container_width=True)
 
@@ -866,7 +962,7 @@ elif aba_selecionada == "Controle de Acessos":
         "Loja", "UF", "Status",
         "Concessionária água", "Login água", "Senha água",
         "Concessionária energia", "Login energia", "Senha energia",
-        "Cadastrado Por",
+        "Cadastrado Por", "Última Alteração Por", "Data da Alteração",
     ]
 
     if nivel in ["Editor", "Admin", "Con"]:
@@ -918,13 +1014,14 @@ elif aba_selecionada == "Controle de Acessos":
                                 "Login energia": ca_login_energia,
                                 "Senha energia": ca_senha_energia,
                                 "Cadastrado Por": st.session_state["usuario_logado"],
+                                "Última Alteração Por": "",
+                                "Data da Alteração": "",
                             }
                         ]
                     )
 
                     df_ca_atualizado = pd.concat([df_ca, novo_acesso], ignore_index=True)
                     df_ca_atualizado = df_ca_atualizado[COLUNAS_CA]
-
                     conn.update(spreadsheet=url_planilha, worksheet="Controle de Acessos", data=df_ca_atualizado)
 
                     st.success("Acesso cadastrado com sucesso!")
@@ -940,27 +1037,15 @@ elif aba_selecionada == "Controle de Acessos":
     try:
         df_ca_view = ler_aba_padronizada("Controle de Acessos", COLUNAS_CA)
 
-        if nivel in ["Admin", "Con"] and not df_ca_view.empty:
-            st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
-
-            df_ca_editor = df_ca_view.copy()
-            df_ca_editor.insert(0, "Excluir", False)
-
-            tabela_ca_editavel = st.data_editor(
-                df_ca_editor,
-                hide_index=True,
-                use_container_width=True,
-                num_rows="fixed"
+        if nivel in ["Editor", "Admin", "Con"] and not df_ca_view.empty:
+            st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
+            render_editor_com_edicao(
+                df_ca_view,
+                nome_aba="Controle de Acessos",
+                colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
+                validacoes={"UF": "uf"},
+                key_prefix="controle_acessos",
             )
-
-            linhas_ca_remover = tabela_ca_editavel[tabela_ca_editavel["Excluir"] == True]
-
-            if not linhas_ca_remover.empty:
-                if st.button("Confirmar Exclusão dos Acessos Selecionados"):
-                    df_ca_final = tabela_ca_editavel[tabela_ca_editavel["Excluir"] == False].drop(columns=["Excluir"])
-                    conn.update(spreadsheet=url_planilha, worksheet="Controle de Acessos", data=df_ca_final)
-                    st.success("Acesso(s) removido(s) com sucesso!")
-                    st.rerun()
         else:
             st.dataframe(df_ca_view, use_container_width=True)
 
@@ -972,7 +1057,7 @@ elif aba_selecionada == "Senhas Concessionárias":
 
     COLUNAS_SC = [
         "Empresa", "Concessionária", "Login", "Senha", "CNPJ/CPF",
-        "Cadastrado Por",
+        "Cadastrado Por", "Última Alteração Por", "Data da Alteração",
     ]
 
     if nivel in ["Editor", "Admin", "Con"]:
@@ -1008,13 +1093,14 @@ elif aba_selecionada == "Senhas Concessionárias":
                                 "Senha": sc_senha,
                                 "CNPJ/CPF": sc_cnpj_cpf,
                                 "Cadastrado Por": st.session_state["usuario_logado"],
+                                "Última Alteração Por": "",
+                                "Data da Alteração": "",
                             }
                         ]
                     )
 
                     df_sc_atualizado = pd.concat([df_sc, nova_senha], ignore_index=True)
                     df_sc_atualizado = df_sc_atualizado[COLUNAS_SC]
-
                     conn.update(spreadsheet=url_planilha, worksheet="Senhas Concessionárias", data=df_sc_atualizado)
 
                     st.success("Senha cadastrada com sucesso!")
@@ -1030,27 +1116,15 @@ elif aba_selecionada == "Senhas Concessionárias":
     try:
         df_sc_view = ler_aba_padronizada("Senhas Concessionárias", COLUNAS_SC)
 
-        if nivel in ["Admin", "Con"] and not df_sc_view.empty:
-            st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
-
-            df_sc_editor = df_sc_view.copy()
-            df_sc_editor.insert(0, "Excluir", False)
-
-            tabela_sc_editavel = st.data_editor(
-                df_sc_editor,
-                hide_index=True,
-                use_container_width=True,
-                num_rows="fixed"
+        if nivel in ["Editor", "Admin", "Con"] and not df_sc_view.empty:
+            st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
+            render_editor_com_edicao(
+                df_sc_view,
+                nome_aba="Senhas Concessionárias",
+                colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
+                validacoes={},
+                key_prefix="senhas_concessionarias",
             )
-
-            linhas_sc_remover = tabela_sc_editavel[tabela_sc_editavel["Excluir"] == True]
-
-            if not linhas_sc_remover.empty:
-                if st.button("Confirmar Exclusão das Senhas Selecionadas"):
-                    df_sc_final = tabela_sc_editavel[tabela_sc_editavel["Excluir"] == False].drop(columns=["Excluir"])
-                    conn.update(spreadsheet=url_planilha, worksheet="Senhas Concessionárias", data=df_sc_final)
-                    st.success("Senha(s) removida(s) com sucesso!")
-                    st.rerun()
         else:
             st.dataframe(df_sc_view, use_container_width=True)
 
@@ -1063,7 +1137,7 @@ elif aba_selecionada == "Espaços Disponíveis":
     COLUNAS_ESP = [
         "Unidade disponível", "Endereço", "Interno/Externo",
         "Espaço Disp.", "m²", "Pontos de consumo",
-        "Cadastrado Por",
+        "Cadastrado Por", "Última Alteração Por", "Data da Alteração",
     ]
 
     if nivel in ["Editor", "Admin", "Con"]:
@@ -1110,13 +1184,14 @@ elif aba_selecionada == "Espaços Disponíveis":
                                 "m²": metragem_formatada_esp,
                                 "Pontos de consumo": esp_pontos_consumo,
                                 "Cadastrado Por": st.session_state["usuario_logado"],
+                                "Última Alteração Por": "",
+                                "Data da Alteração": "",
                             }
                         ]
                     )
 
                     df_esp_atualizado = pd.concat([df_esp, novo_espaco], ignore_index=True)
                     df_esp_atualizado = df_esp_atualizado[COLUNAS_ESP]
-
                     conn.update(spreadsheet=url_planilha, worksheet="Espaços Disponíveis", data=df_esp_atualizado)
 
                     st.success("Espaço disponível cadastrado com sucesso!")
@@ -1132,27 +1207,15 @@ elif aba_selecionada == "Espaços Disponíveis":
     try:
         df_esp_view = ler_aba_padronizada("Espaços Disponíveis", COLUNAS_ESP)
 
-        if nivel in ["Admin", "Con"] and not df_esp_view.empty:
-            st.info("Selecione as linhas que deseja remover e clique no botão abaixo.")
-
-            df_esp_editor = df_esp_view.copy()
-            df_esp_editor.insert(0, "Excluir", False)
-
-            tabela_esp_editavel = st.data_editor(
-                df_esp_editor,
-                hide_index=True,
-                use_container_width=True,
-                num_rows="fixed"
+        if nivel in ["Editor", "Admin", "Con"] and not df_esp_view.empty:
+            st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
+            render_editor_com_edicao(
+                df_esp_view,
+                nome_aba="Espaços Disponíveis",
+                colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
+                validacoes={"m²": "m2"},
+                key_prefix="espacos_disponiveis",
             )
-
-            linhas_esp_remover = tabela_esp_editavel[tabela_esp_editavel["Excluir"] == True]
-
-            if not linhas_esp_remover.empty:
-                if st.button("Confirmar Exclusão dos Espaços Selecionados"):
-                    df_esp_final = tabela_esp_editavel[tabela_esp_editavel["Excluir"] == False].drop(columns=["Excluir"])
-                    conn.update(spreadsheet=url_planilha, worksheet="Espaços Disponíveis", data=df_esp_final)
-                    st.success("Espaço(s) removido(s) com sucesso!")
-                    st.rerun()
         else:
             st.dataframe(df_esp_view, use_container_width=True)
 
