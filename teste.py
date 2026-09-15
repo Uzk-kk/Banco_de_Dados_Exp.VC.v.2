@@ -12,6 +12,7 @@ import secrets
 import hashlib  
 import hmac     
 import time     
+import traceback
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
@@ -211,8 +212,8 @@ def validar_campo(nome_campo, valor, regra):
     return True, ""
 
 def _valor_mudou(v_orig, v_edit):
-    v_orig_vazio = pd.isna(v_orig) or str(v_orig).strip() == ""
-    v_edit_vazio = pd.isna(v_edit) or str(v_edit).strip() == ""
+    v_orig_vazio = pd.isna(v_orig) or str(v_orig).strip() == "" or str(v_orig).strip().lower() == "none"
+    v_edit_vazio = pd.isna(v_edit) or str(v_edit).strip() == "" or str(v_edit).strip().lower() == "none"
 
     if v_orig_vazio and v_edit_vazio:
         return False
@@ -229,6 +230,15 @@ def _valor_mudou(v_orig, v_edit):
         return float(s1) != float(s2)
     except (ValueError, TypeError):
         return True
+
+def _preparar_df_para_sheets(df):
+    df_out = df.copy()
+    for col in df_out.columns:
+        df_out[col] = df_out[col].apply(
+            lambda x: "" if (x is None or (isinstance(x, float) and pd.isna(x)) or x is pd.NA or x is pd.NaT) else x
+        )
+    df_out = df_out.replace({pd.NA: "", None: "", pd.NaT: ""})
+    return df_out
 
 def render_editor_com_edicao(df, nome_aba, colunas_auditoria, validacoes, key_prefix):
     for col_aud in colunas_auditoria:
@@ -310,9 +320,16 @@ def render_editor_com_edicao(df, nome_aba, colunas_auditoria, validacoes, key_pr
                         df_editado.at[idx, "Última Alteração Por"] = usuario_atual
                         df_editado.at[idx, "Data da Alteração"] = agora_str
 
-                    conn.update(spreadsheet=url_planilha, worksheet=nome_aba, data=df_editado)
-                    st.success(f"{len(indices_alterados)} linha(s) atualizada(s) com sucesso!")
-                    st.rerun()
+                    df_para_salvar = _preparar_df_para_sheets(df_editado)
+
+                    try:
+                        conn.update(spreadsheet=url_planilha, worksheet=nome_aba, data=df_para_salvar)
+                        st.success(f"{len(indices_alterados)} linha(s) atualizada(s) com sucesso!")
+                        st.rerun()
+                    except Exception as ex_save:
+                        st.error(f"Erro ao salvar na planilha: {ex_save}")
+                        with st.expander("Detalhes técnicos do erro"):
+                            st.code(traceback.format_exc())
 
     with col_btn2:
         if not linhas_marcadas_excluir.empty:
@@ -324,9 +341,15 @@ def render_editor_com_edicao(df, nome_aba, colunas_auditoria, validacoes, key_pr
                     )
                 else:
                     df_final = tabela_editavel[tabela_editavel["Excluir"] == False].drop(columns=["Excluir"])
-                    conn.update(spreadsheet=url_planilha, worksheet=nome_aba, data=df_final)
-                    st.success("Registro(s) removido(s) com sucesso!")
-                    st.rerun()
+                    df_final = _preparar_df_para_sheets(df_final)
+                    try:
+                        conn.update(spreadsheet=url_planilha, worksheet=nome_aba, data=df_final)
+                        st.success("Registro(s) removido(s) com sucesso!")
+                        st.rerun()
+                    except Exception as ex_del:
+                        st.error(f"Erro ao excluir na planilha: {ex_del}")
+                        with st.expander("Detalhes técnicos do erro"):
+                            st.code(traceback.format_exc())
 
 @st.cache_resource
 def obter_armazenamento_sessoes():
@@ -546,12 +569,15 @@ if aba_selecionada == "Cadastro Rápido":
 
                     df_atualizado = pd.concat([df_existente, novo_dado], ignore_index=True)
                     df_atualizado = df_atualizado[COLUNAS_CR]
+                    df_atualizado = _preparar_df_para_sheets(df_atualizado)
                     conn.update(spreadsheet=url_planilha, worksheet="Cadastro Rápido", data=df_atualizado)
 
                     st.success("Dados salvos com sucesso no Google Sheets!")
                     st.rerun()
                 except Exception as err:
                     st.error(f"Erro ao salvar na planilha: {err}")
+                    with st.expander("Detalhes técnicos"):
+                        st.code(traceback.format_exc())
     else:
         st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
 
@@ -560,21 +586,23 @@ if aba_selecionada == "Cadastro Rápido":
 
     try:
         df = ler_aba_padronizada("Cadastro Rápido", COLUNAS_CR)
-
-        if nivel in ["Editor", "Admin", "Con"] and not df.empty:
-            st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
-            render_editor_com_edicao(
-                df,
-                nome_aba="Cadastro Rápido",
-                colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
-                validacoes={"Telefone": "telefone"},
-                key_prefix="cadastro_rapido",
-            )
-        else:
-            st.dataframe(df, use_container_width=True)
-
     except Exception as e:
-        st.info("Nenhum dado cadastrado ou erro ao conectar com a guia 'Cadastro Rápido'.")
+        st.error(f"Erro ao ler a aba 'Cadastro Rápido': {e}")
+        df = pd.DataFrame(columns=COLUNAS_CR)
+
+    if nivel in ["Editor", "Admin", "Con"] and not df.empty:
+        st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
+        render_editor_com_edicao(
+            df,
+            nome_aba="Cadastro Rápido",
+            colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
+            validacoes={"Telefone": "telefone"},
+            key_prefix="cadastro_rapido",
+        )
+    elif df.empty:
+        st.info("Nenhum dado cadastrado ainda.")
+    else:
+        st.dataframe(df, use_container_width=True)
 
 elif aba_selecionada == "Controle de Prestadores":
     st.title("Controle de Prestadores de Serviço")
@@ -633,12 +661,15 @@ elif aba_selecionada == "Controle de Prestadores":
 
                     df_p_atualizado = pd.concat([df_prestadores, novo_prestador], ignore_index=True)
                     df_p_atualizado = df_p_atualizado[COLUNAS_CP]
+                    df_p_atualizado = _preparar_df_para_sheets(df_p_atualizado)
                     conn.update(spreadsheet=url_planilha, worksheet="Controle de Prestadores", data=df_p_atualizado)
 
                     st.success("Prestador cadastrado com sucesso!")
                     st.rerun()
                 except Exception as err:
                     st.error(f"Erro ao salvar na guia 'Controle de Prestadores': {err}")
+                    with st.expander("Detalhes técnicos"):
+                        st.code(traceback.format_exc())
     else:
         st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
 
@@ -647,21 +678,23 @@ elif aba_selecionada == "Controle de Prestadores":
 
     try:
         df_p = ler_aba_padronizada("Controle de Prestadores", COLUNAS_CP)
-
-        if nivel in ["Editor", "Admin", "Con"] and not df_p.empty:
-            st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
-            render_editor_com_edicao(
-                df_p,
-                nome_aba="Controle de Prestadores",
-                colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
-                validacoes={"Telefone": "telefone"},
-                key_prefix="prestadores",
-            )
-        else:
-            st.dataframe(df_p, use_container_width=True)
-
     except Exception as e:
-        st.info("Nenhum prestador cadastrado ou a guia 'Controle de Prestadores' ainda não foi criada no Google Sheets.")
+        st.error(f"Erro ao ler a aba 'Controle de Prestadores': {e}")
+        df_p = pd.DataFrame(columns=COLUNAS_CP)
+
+    if nivel in ["Editor", "Admin", "Con"] and not df_p.empty:
+        st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
+        render_editor_com_edicao(
+            df_p,
+            nome_aba="Controle de Prestadores",
+            colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
+            validacoes={"Telefone": "telefone"},
+            key_prefix="prestadores",
+        )
+    elif df_p.empty:
+        st.info("Nenhum prestador cadastrado ainda.")
+    else:
+        st.dataframe(df_p, use_container_width=True)
 
 elif aba_selecionada == "Sublocatários":
     st.title("Controle de Sublocatários")
@@ -747,12 +780,15 @@ elif aba_selecionada == "Sublocatários":
 
                     df_sub_atualizado = pd.concat([df_sub, novo_sublocatario], ignore_index=True)
                     df_sub_atualizado = df_sub_atualizado[COLUNAS_SUB]
+                    df_sub_atualizado = _preparar_df_para_sheets(df_sub_atualizado)
                     conn.update(spreadsheet=url_planilha, worksheet="Sublocatários", data=df_sub_atualizado)
 
                     st.success("Sublocatário cadastrado com sucesso!")
                     st.rerun()
                 except Exception as err:
                     st.error(f"Erro ao salvar na guia 'Sublocatários': {err}")
+                    with st.expander("Detalhes técnicos"):
+                        st.code(traceback.format_exc())
     else:
         st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
 
@@ -761,21 +797,23 @@ elif aba_selecionada == "Sublocatários":
 
     try:
         df_s = ler_aba_padronizada("Sublocatários", COLUNAS_SUB)
-
-        if nivel in ["Editor", "Admin", "Con"] and not df_s.empty:
-            st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
-            render_editor_com_edicao(
-                df_s,
-                nome_aba="Sublocatários",
-                colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
-                validacoes={"Telefone": "telefone", "Metragem ocupada": "m2"},
-                key_prefix="sublocatarios",
-            )
-        else:
-            st.dataframe(df_s, use_container_width=True)
-
     except Exception as e:
-        st.info("Nenhum sublocatário cadastrado ou a guia 'Sublocatários' ainda não foi criada no Google Sheets.")
+        st.error(f"Erro ao ler a aba 'Sublocatários': {e}")
+        df_s = pd.DataFrame(columns=COLUNAS_SUB)
+
+    if nivel in ["Editor", "Admin", "Con"] and not df_s.empty:
+        st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
+        render_editor_com_edicao(
+            df_s,
+            nome_aba="Sublocatários",
+            colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
+            validacoes={"Telefone": "telefone", "Metragem ocupada": "m2"},
+            key_prefix="sublocatarios",
+        )
+    elif df_s.empty:
+        st.info("Nenhum sublocatário cadastrado ainda.")
+    else:
+        st.dataframe(df_s, use_container_width=True)
 
 elif aba_selecionada == "Controle Gerentes de Loja":
     st.title("Controle Gerentes de Loja")
@@ -828,12 +866,15 @@ elif aba_selecionada == "Controle Gerentes de Loja":
 
                     df_g_atualizado = pd.concat([df_gerentes, novo_gerente], ignore_index=True)
                     df_g_atualizado = df_g_atualizado[COLUNAS_G]
+                    df_g_atualizado = _preparar_df_para_sheets(df_g_atualizado)
                     conn.update(spreadsheet=url_planilha, worksheet="Controle Gerentes de Loja", data=df_g_atualizado)
 
                     st.success("Gerente cadastrado com sucesso!")
                     st.rerun()
                 except Exception as err:
                     st.error(f"Erro ao salvar na guia 'Controle Gerentes de Loja': {err}")
+                    with st.expander("Detalhes técnicos"):
+                        st.code(traceback.format_exc())
     else:
         st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
 
@@ -842,21 +883,23 @@ elif aba_selecionada == "Controle Gerentes de Loja":
 
     try:
         df_g = ler_aba_padronizada("Controle Gerentes de Loja", COLUNAS_G)
-
-        if nivel in ["Editor", "Admin", "Con"] and not df_g.empty:
-            st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
-            render_editor_com_edicao(
-                df_g,
-                nome_aba="Controle Gerentes de Loja",
-                colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
-                validacoes={"Telefone": "telefone"},
-                key_prefix="gerentes",
-            )
-        else:
-            st.dataframe(df_g, use_container_width=True)
-
     except Exception as e:
-        st.info("Nenhum gerente cadastrado ou a guia 'Controle Gerentes de Loja' ainda não foi criada no Google Sheets.")
+        st.error(f"Erro ao ler a aba 'Controle Gerentes de Loja': {e}")
+        df_g = pd.DataFrame(columns=COLUNAS_G)
+
+    if nivel in ["Editor", "Admin", "Con"] and not df_g.empty:
+        st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
+        render_editor_com_edicao(
+            df_g,
+            nome_aba="Controle Gerentes de Loja",
+            colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
+            validacoes={"Telefone": "telefone"},
+            key_prefix="gerentes",
+        )
+    elif df_g.empty:
+        st.info("Nenhum gerente cadastrado ainda.")
+    else:
+        st.dataframe(df_g, use_container_width=True)
 
 elif aba_selecionada == "Contas de Consumo":
     st.title("Contas de Consumo")
@@ -947,12 +990,15 @@ elif aba_selecionada == "Contas de Consumo":
 
                     df_cc_atualizado = pd.concat([df_cc, nova_conta], ignore_index=True)
                     df_cc_atualizado = df_cc_atualizado[COLUNAS_CC]
+                    df_cc_atualizado = _preparar_df_para_sheets(df_cc_atualizado)
                     conn.update(spreadsheet=url_planilha, worksheet="Contas de Consumo", data=df_cc_atualizado)
 
                     st.success("Conta de consumo cadastrada com sucesso!")
                     st.rerun()
                 except Exception as err:
                     st.error(f"Erro ao salvar na guia 'Contas de Consumo': {err}")
+                    with st.expander("Detalhes técnicos"):
+                        st.code(traceback.format_exc())
     else:
         st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
 
@@ -961,21 +1007,23 @@ elif aba_selecionada == "Contas de Consumo":
 
     try:
         df_cc_view = ler_aba_padronizada("Contas de Consumo", COLUNAS_CC)
-
-        if nivel in ["Editor", "Admin", "Con"] and not df_cc_view.empty:
-            st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
-            render_editor_com_edicao(
-                df_cc_view,
-                nome_aba="Contas de Consumo",
-                colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
-                validacoes={"UF": "uf", "Telefone": "telefone", "CPF/CNPJ": "cpf_cnpj"},
-                key_prefix="contas_consumo",
-            )
-        else:
-            st.dataframe(df_cc_view, use_container_width=True)
-
     except Exception as e:
-        st.info("Nenhuma conta cadastrada ou a guia 'Contas de Consumo' ainda não foi criada no Google Sheets.")
+        st.error(f"Erro ao ler a aba 'Contas de Consumo': {e}")
+        df_cc_view = pd.DataFrame(columns=COLUNAS_CC)
+
+    if nivel in ["Editor", "Admin", "Con"] and not df_cc_view.empty:
+        st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
+        render_editor_com_edicao(
+            df_cc_view,
+            nome_aba="Contas de Consumo",
+            colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
+            validacoes={"UF": "uf", "Telefone": "telefone", "CPF/CNPJ": "cpf_cnpj"},
+            key_prefix="contas_consumo",
+        )
+    elif df_cc_view.empty:
+        st.info("Nenhuma conta cadastrada ainda.")
+    else:
+        st.dataframe(df_cc_view, use_container_width=True)
 
 elif aba_selecionada == "Controle de Acessos":
     st.title("Controle de Acessos")
@@ -1044,12 +1092,15 @@ elif aba_selecionada == "Controle de Acessos":
 
                     df_ca_atualizado = pd.concat([df_ca, novo_acesso], ignore_index=True)
                     df_ca_atualizado = df_ca_atualizado[COLUNAS_CA]
+                    df_ca_atualizado = _preparar_df_para_sheets(df_ca_atualizado)
                     conn.update(spreadsheet=url_planilha, worksheet="Controle de Acessos", data=df_ca_atualizado)
 
                     st.success("Acesso cadastrado com sucesso!")
                     st.rerun()
                 except Exception as err:
                     st.error(f"Erro ao salvar na guia 'Controle de Acessos': {err}")
+                    with st.expander("Detalhes técnicos"):
+                        st.code(traceback.format_exc())
     else:
         st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
 
@@ -1058,21 +1109,23 @@ elif aba_selecionada == "Controle de Acessos":
 
     try:
         df_ca_view = ler_aba_padronizada("Controle de Acessos", COLUNAS_CA)
-
-        if nivel in ["Editor", "Admin", "Con"] and not df_ca_view.empty:
-            st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
-            render_editor_com_edicao(
-                df_ca_view,
-                nome_aba="Controle de Acessos",
-                colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
-                validacoes={"UF": "uf"},
-                key_prefix="controle_acessos",
-            )
-        else:
-            st.dataframe(df_ca_view, use_container_width=True)
-
     except Exception as e:
-        st.info("Nenhum acesso cadastrado ou a guia 'Controle de Acessos' ainda não foi criada no Google Sheets.")
+        st.error(f"Erro ao ler a aba 'Controle de Acessos': {e}")
+        df_ca_view = pd.DataFrame(columns=COLUNAS_CA)
+
+    if nivel in ["Editor", "Admin", "Con"] and not df_ca_view.empty:
+        st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
+        render_editor_com_edicao(
+            df_ca_view,
+            nome_aba="Controle de Acessos",
+            colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
+            validacoes={"UF": "uf"},
+            key_prefix="controle_acessos",
+        )
+    elif df_ca_view.empty:
+        st.info("Nenhum acesso cadastrado ainda.")
+    else:
+        st.dataframe(df_ca_view, use_container_width=True)
 
 elif aba_selecionada == "Senhas Concessionárias":
     st.title("Senhas Concessionárias")
@@ -1123,12 +1176,15 @@ elif aba_selecionada == "Senhas Concessionárias":
 
                     df_sc_atualizado = pd.concat([df_sc, nova_senha], ignore_index=True)
                     df_sc_atualizado = df_sc_atualizado[COLUNAS_SC]
+                    df_sc_atualizado = _preparar_df_para_sheets(df_sc_atualizado)
                     conn.update(spreadsheet=url_planilha, worksheet="Senhas Concessionárias", data=df_sc_atualizado)
 
                     st.success("Senha cadastrada com sucesso!")
                     st.rerun()
                 except Exception as err:
                     st.error(f"Erro ao salvar na guia 'Senhas Concessionárias': {err}")
+                    with st.expander("Detalhes técnicos"):
+                        st.code(traceback.format_exc())
     else:
         st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
 
@@ -1137,21 +1193,23 @@ elif aba_selecionada == "Senhas Concessionárias":
 
     try:
         df_sc_view = ler_aba_padronizada("Senhas Concessionárias", COLUNAS_SC)
-
-        if nivel in ["Editor", "Admin", "Con"] and not df_sc_view.empty:
-            st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
-            render_editor_com_edicao(
-                df_sc_view,
-                nome_aba="Senhas Concessionárias",
-                colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
-                validacoes={},
-                key_prefix="senhas_concessionarias",
-            )
-        else:
-            st.dataframe(df_sc_view, use_container_width=True)
-
     except Exception as e:
-        st.info("Nenhuma senha cadastrada ou a guia 'Senhas Concessionárias' ainda não foi criada no Google Sheets.")
+        st.error(f"Erro ao ler a aba 'Senhas Concessionárias': {e}")
+        df_sc_view = pd.DataFrame(columns=COLUNAS_SC)
+
+    if nivel in ["Editor", "Admin", "Con"] and not df_sc_view.empty:
+        st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
+        render_editor_com_edicao(
+            df_sc_view,
+            nome_aba="Senhas Concessionárias",
+            colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
+            validacoes={},
+            key_prefix="senhas_concessionarias",
+        )
+    elif df_sc_view.empty:
+        st.info("Nenhuma senha cadastrada ainda.")
+    else:
+        st.dataframe(df_sc_view, use_container_width=True)
 
 elif aba_selecionada == "Espaços Disponíveis":
     st.title("Espaços Disponíveis")
@@ -1214,12 +1272,15 @@ elif aba_selecionada == "Espaços Disponíveis":
 
                     df_esp_atualizado = pd.concat([df_esp, novo_espaco], ignore_index=True)
                     df_esp_atualizado = df_esp_atualizado[COLUNAS_ESP]
+                    df_esp_atualizado = _preparar_df_para_sheets(df_esp_atualizado)
                     conn.update(spreadsheet=url_planilha, worksheet="Espaços Disponíveis", data=df_esp_atualizado)
 
                     st.success("Espaço disponível cadastrado com sucesso!")
                     st.rerun()
                 except Exception as err:
                     st.error(f"Erro ao salvar na guia 'Espaços Disponíveis': {err}")
+                    with st.expander("Detalhes técnicos"):
+                        st.code(traceback.format_exc())
     else:
         st.warning("Seu perfil (Leitor) possui permissão apenas para visualização dos dados.")
 
@@ -1228,21 +1289,23 @@ elif aba_selecionada == "Espaços Disponíveis":
 
     try:
         df_esp_view = ler_aba_padronizada("Espaços Disponíveis", COLUNAS_ESP)
-
-        if nivel in ["Editor", "Admin", "Con"] and not df_esp_view.empty:
-            st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
-            render_editor_com_edicao(
-                df_esp_view,
-                nome_aba="Espaços Disponíveis",
-                colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
-                validacoes={"m²": "m2"},
-                key_prefix="espacos_disponiveis",
-            )
-        else:
-            st.dataframe(df_esp_view, use_container_width=True)
-
     except Exception as e:
-        st.info("Nenhum espaço cadastrado ou a guia 'Espaços Disponíveis' ainda não foi criada no Google Sheets.")
+        st.error(f"Erro ao ler a aba 'Espaços Disponíveis': {e}")
+        df_esp_view = pd.DataFrame(columns=COLUNAS_ESP)
+
+    if nivel in ["Editor", "Admin", "Con"] and not df_esp_view.empty:
+        st.info("Você pode editar qualquer célula diretamente na tabela (exceto 'Cadastrado Por' e colunas de auditoria). Ao terminar, clique em 'Salvar Alterações'.")
+        render_editor_com_edicao(
+            df_esp_view,
+            nome_aba="Espaços Disponíveis",
+            colunas_auditoria=["Última Alteração Por", "Data da Alteração"],
+            validacoes={"m²": "m2"},
+            key_prefix="espacos_disponiveis",
+        )
+    elif df_esp_view.empty:
+        st.info("Nenhum espaço cadastrado ainda.")
+    else:
+        st.dataframe(df_esp_view, use_container_width=True)
 
 elif aba_selecionada == "👥 Gerenciar Usuários":
     st.title("Gerenciar Usuários")
@@ -1331,6 +1394,7 @@ elif aba_selecionada == "👥 Gerenciar Usuários":
                         if col_sync not in df_usr_sync.columns:
                             df_usr_sync[col_sync] = ""
                     df_usr_sync = df_usr_sync[["Usuário", "Senha", "Nível", "Cadastrado Por", "Data"]]
+                    df_usr_sync = _preparar_df_para_sheets(df_usr_sync)
                     conn.update(spreadsheet=url_planilha, worksheet="Usuários", data=df_usr_sync)
                     st.success(f"{len(novas_linhas)} usuário(s) sincronizado(s) com sucesso!")
                     st.rerun()
@@ -1338,6 +1402,8 @@ elif aba_selecionada == "👥 Gerenciar Usuários":
                     st.info("Nada para sincronizar.")
             except Exception as e:
                 st.error(f"Erro ao sincronizar secrets com a planilha: {e}")
+                with st.expander("Detalhes técnicos"):
+                    st.code(traceback.format_exc())
     else:
         st.success("✅ Todos os usuários dos secrets já estão na planilha.")
 
@@ -1378,11 +1444,14 @@ elif aba_selecionada == "👥 Gerenciar Usuários":
                     if col_add not in df_usr.columns:
                         df_usr[col_add] = ""
                 df_usr = df_usr[["Usuário", "Senha", "Nível", "Cadastrado Por", "Data"]]
+                df_usr = _preparar_df_para_sheets(df_usr)
                 conn.update(spreadsheet=url_planilha, worksheet="Usuários", data=df_usr)
                 st.success(f"Usuário '{user_limpo}' adicionado com sucesso como {novo_nivel}!")
                 st.rerun()
             except Exception as e:
                 st.error(f"Erro ao adicionar usuário: {e}")
+                with st.expander("Detalhes técnicos"):
+                    st.code(traceback.format_exc())
 
     st.divider()
 
@@ -1419,9 +1488,15 @@ elif aba_selecionada == "👥 Gerenciar Usuários":
                 df_usr_final = df_usr_rem[
                     df_usr_rem["Usuário"].astype(str).str.strip().str.lower() != user_alvo
                 ]
-                conn.update(spreadsheet=url_planilha, worksheet="Usuários", data=df_usr_final)
-                st.success(f"Usuário '{user_alvo}' removido com sucesso!")
-                st.rerun()
+                df_usr_final = _preparar_df_para_sheets(df_usr_final)
+                try:
+                    conn.update(spreadsheet=url_planilha, worksheet="Usuários", data=df_usr_final)
+                    st.success(f"Usuário '{user_alvo}' removido com sucesso!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao remover usuário: {e}")
+                    with st.expander("Detalhes técnicos"):
+                        st.code(traceback.format_exc())
 
 elif aba_selecionada == "🎮 Sala Secreta: Jogo da Forca":
     st.title("🕵️‍♂️ Área Secreta - Jogo da Forca")
