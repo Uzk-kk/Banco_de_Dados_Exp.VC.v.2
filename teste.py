@@ -4,6 +4,8 @@
 # Propriedade Intelectual e Desenvolvimento: Raphael Santos
 # Licença: Uso Exclusivo Autorizado - Proibida Replicação ou Alteração sem Autorização
 # Data de Criação: Set/2026
+# Atualização: Set/2026 (adicionado Jogo da Cobrinha como aba secreta,
+#              desbloqueado ao clicar 3x no título "Menu do Sistema" na sidebar)
 # ==============================================================================
 
 import datetime
@@ -14,6 +16,7 @@ import hmac
 import time     
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components  # ADICIONADO: usado para embutir o Jogo da Cobrinha
 from streamlit_gsheets import GSheetsConnection
 
 # 1. Configuração visual da página (DEVE SER A PRIMEIRA INSTRUÇÃO STREAMLIT)
@@ -83,6 +86,40 @@ st.markdown(
         background-color: transparent !important;
         color: transparent !important;
         border: none !important;
+    }
+
+    /* ========================================================================
+       BOTÃO-TÍTULO "Menu do Sistema" (desbloqueia o Jogo da Cobrinha com 3 cliques)
+       O botão é estilizado para parecer exatamente o título original da sidebar.
+       ======================================================================== */
+    div[data-testid="stSidebar"] div.element-container:has(#snake-s-marker) + div.element-container button {
+        background-color: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        color: #FFD80F !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 100% !important;
+        height: auto !important;
+        min-height: 0 !important;
+        line-height: 1.2 !important;
+    }
+    div[data-testid="stSidebar"] div.element-container:has(#snake-s-marker) + div.element-container button:hover,
+    div[data-testid="stSidebar"] div.element-container:has(#snake-s-marker) + div.element-container button:focus,
+    div[data-testid="stSidebar"] div.element-container:has(#snake-s-marker) + div.element-container button:active {
+        background-color: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        color: #FFD80F !important;
+    }
+    div[data-testid="stSidebar"] div.element-container:has(#snake-s-marker) + div.element-container button p {
+        color: #FFD80F !important;
+        font-weight: bold !important;
+        font-size: 1.75rem !important;
+        text-align: left !important;
+        margin: 0 !important;
     }
 
     /* BOTÃO RADIO (Navegação no Menu Lateral - Seleção em Amarelo) */
@@ -390,8 +427,26 @@ def ler_aba_padronizada(nome_aba, colunas_esperadas):
 if "aba_secreta_desbloqueada" not in st.session_state:
     st.session_state["aba_secreta_desbloqueada"] = False
 
+# ADICIONADO: controle da aba secreta do Jogo da Cobrinha (desbloqueada ao
+# clicar 3 vezes no título "Menu do Sistema" na sidebar).
+if "aba_cobra_desbloqueada" not in st.session_state:
+    st.session_state["aba_cobra_desbloqueada"] = False
+if "snake_click_count" not in st.session_state:
+    st.session_state["snake_click_count"] = 0
+
 # --- MENU LATERAL ---
-st.sidebar.title("Menu do Sistema")
+# ALTERADO: o título "Menu do Sistema" foi transformado em um botão disfarçado
+# de título (mesmo texto, mesma cor, sem fundo/borda). Ao clicar nele 3 vezes
+# (na prática, no "S" inicial), o Jogo da Cobrinha é desbloqueado silenciosamente
+# e passa a aparecer como nova opção no menu lateral.
+st.sidebar.markdown('<span id="snake-s-marker"></span>', unsafe_allow_html=True)
+if st.sidebar.button("Menu do Sistema", key="btn_unlock_snake"):
+    st.session_state["snake_click_count"] = st.session_state.get("snake_click_count", 0) + 1
+    if st.session_state["snake_click_count"] >= 3:
+        st.session_state["aba_cobra_desbloqueada"] = True
+        st.session_state["snake_click_count"] = 0
+    st.rerun()
+
 st.sidebar.write(f"Usuário: **{st.session_state.get('usuario_logado')}**")
 st.sidebar.write(f"Perfil: **{st.session_state.get('nivel_acesso')}**")
 
@@ -404,13 +459,14 @@ if st.sidebar.button("Sair"):
     st.session_state.pop("nivel_acesso", None)
     st.session_state.pop("session_token", None)
     st.session_state["aba_secreta_desbloqueada"] = False
+    st.session_state["aba_cobra_desbloqueada"] = False  # ADICIONADO: relock ao sair
+    st.session_state["snake_click_count"] = 0           # ADICIONADO: reseta contador ao sair
     st.query_params.clear()
     st.rerun()
 
 st.sidebar.divider()
 
 # Lista dinâmica de abas
-# ATUALIZADO: adicionadas as 4 novas páginas mantendo a aba secreta sempre por último.
 opcoes_menu = [
     "Cadastro Rápido",
     "Controle de Prestadores",
@@ -423,6 +479,9 @@ opcoes_menu = [
 ]
 if st.session_state["aba_secreta_desbloqueada"]:
     opcoes_menu.append("🎮 Sala Secreta: Jogo da Forca")
+# ADICIONADO: Jogo da Cobrinha como nova aba secreta
+if st.session_state["aba_cobra_desbloqueada"]:
+    opcoes_menu.append("🐍 Sala Secreta: Jogo da Cobrinha")
 
 aba_selecionada = st.sidebar.radio("Navegação", opcoes_menu)
 
@@ -1393,3 +1452,205 @@ elif aba_selecionada == "🎮 Sala Secreta: Jogo da Forca":
             if st.button("Tentar Novamente"):
                 reiniciar_jogo()
                 st.rerun()
+
+# ==============================================================================
+# NOVA ABA SECRETA: JOGO DA COBRINHA (desbloqueado com 3 cliques no título)
+# ==============================================================================
+elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
+    st.title("🐍 Área Secreta - Jogo da Cobrinha")
+    st.write(
+        "Você desbloqueou o segundo modo secreto! Use as setas ⬆ ⬇ ⬅ ➡ do teclado "
+        "para jogar. Se as setas não responderem, clique uma vez sobre o tabuleiro "
+        "para dar foco ao jogo."
+    )
+
+    # Jogo da Cobrinha completo em HTML5 Canvas + JavaScript, embutido via
+    # components.html. Streamlit não suporta input de teclado em tempo real,
+    # então o jeito mais limpo e funcional de ter um Snake de verdade é
+    # renderizar o jogo dentro de um iframe.
+    SNAKE_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    background: #341539;
+    color: #FFD80F;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    margin: 0;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100%;
+  }
+  h2 { color: #FFD80F; margin: 0 0 12px 0; }
+  canvas {
+    background: #262730;
+    border: 2px solid #FFD80F;
+    border-radius: 8px;
+    display: block;
+    outline: none;
+    cursor: pointer;
+  }
+  .info { color: #FFD80F; margin-top: 12px; font-weight: bold; }
+  .status { color: #FFD80F; margin-top: 6px; font-size: 14px; text-align: center; }
+  button {
+    background: #FFD80F;
+    color: #000;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-weight: bold;
+    cursor: pointer;
+    margin-top: 14px;
+    font-size: 14px;
+  }
+  button:hover { background: #7B2CBF; color: #FFF; }
+</style>
+</head>
+<body>
+  <h2>🐍 Jogo da Cobrinha</h2>
+  <canvas id="game" width="400" height="400" tabindex="0"></canvas>
+  <div class="info">Pontos: <span id="score">0</span> &nbsp;|&nbsp; Recorde: <span id="high">0</span></div>
+  <div class="status" id="status">Use as setas ⬆ ⬇ ⬅ ➡ para jogar</div>
+  <button onclick="resetGame()">🔄 Reiniciar</button>
+
+  <script>
+  (function () {
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const box = 20;
+    const cols = canvas.width / box;
+    const rows = canvas.height / box;
+
+    let snake, dir, nextDir, food, score, high, gameOver, loop;
+
+    high = 0;
+
+    function placeFood() {
+      let attempts = 0;
+      do {
+        food = {
+          x: Math.floor(Math.random() * cols),
+          y: Math.floor(Math.random() * rows)
+        };
+        attempts++;
+      } while (snake.some(s => s.x === food.x && s.y === food.y) && attempts < 500);
+    }
+
+    function resetGame() {
+      snake = [{x: 5, y: 5}, {x: 4, y: 5}, {x: 3, y: 5}];
+      dir = {x: 1, y: 0};
+      nextDir = {x: 1, y: 0};
+      score = 0;
+      gameOver = false;
+      document.getElementById('score').textContent = '0';
+      document.getElementById('status').textContent = 'Use as setas ⬆ ⬇ ⬅ ➡ para jogar';
+      placeFood();
+      if (loop) clearInterval(loop);
+      loop = setInterval(tick, 110);
+      draw();
+      canvas.focus();
+    }
+
+    function tick() {
+      if (gameOver) return;
+      dir = nextDir;
+
+      const head = {x: snake[0].x + dir.x, y: snake[0].y + dir.y};
+
+      if (
+        head.x < 0 || head.x >= cols ||
+        head.y < 0 || head.y >= rows ||
+        snake.some(s => s.x === head.x && s.y === head.y)
+      ) {
+        gameOver = true;
+        clearInterval(loop);
+        document.getElementById('status').textContent =
+          '☠️ Game Over! Pontuação final: ' + score;
+        if (score > high) {
+          high = score;
+          document.getElementById('high').textContent = high;
+        }
+        return;
+      }
+
+      snake.unshift(head);
+
+      if (head.x === food.x && head.y === food.y) {
+        score++;
+        document.getElementById('score').textContent = score;
+        placeFood();
+      } else {
+        snake.pop();
+      }
+
+      draw();
+    }
+
+    function draw() {
+      // Fundo
+      ctx.fillStyle = '#262730';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Grid sutil
+      ctx.strokeStyle = 'rgba(255, 216, 15, 0.08)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= cols; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * box + 0.5, 0);
+        ctx.lineTo(i * box + 0.5, canvas.height);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, i * box + 0.5);
+        ctx.lineTo(canvas.width, i * box + 0.5);
+        ctx.stroke();
+      }
+
+      // Comida
+      ctx.fillStyle = '#7B2CBF';
+      ctx.beginPath();
+      ctx.arc(food.x * box + box / 2, food.y * box + box / 2, box / 2 - 2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Cobra
+      snake.forEach((s, i) => {
+        if (i === 0) {
+          ctx.fillStyle = '#FFD80F';
+        } else {
+          const alpha = 0.55 + 0.4 * (1 - i / Math.max(1, snake.length));
+          ctx.fillStyle = 'rgba(255, 216, 15, ' + alpha + ')';
+        }
+        ctx.fillRect(s.x * box + 1, s.y * box + 1, box - 2, box - 2);
+      });
+    }
+
+    // Controles: setas do teclado. Previne scroll da página quando usadas.
+    window.addEventListener('keydown', function (e) {
+      const k = e.key;
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].indexOf(k) !== -1) {
+        e.preventDefault();
+      }
+      if (k === 'ArrowUp' && dir.y === 0) nextDir = {x: 0, y: -1};
+      else if (k === 'ArrowDown' && dir.y === 0) nextDir = {x: 0, y: 1};
+      else if (k === 'ArrowLeft' && dir.x === 0) nextDir = {x: -1, y: 0};
+      else if (k === 'ArrowRight' && dir.x === 0) nextDir = {x: 1, y: 0};
+    });
+
+    // Garante foco no canvas (necessário para o iframe receber teclado)
+    canvas.addEventListener('click', function () { canvas.focus(); });
+    window.addEventListener('load', function () { canvas.focus(); });
+
+    resetGame();
+  })();
+  </script>
+</body>
+</html>
+"""
+
+    # Renderiza o jogo dentro de um iframe. Altura suficiente para caber o
+    # tabuleiro, os placares e o botão de reinício.
+    components.html(SNAKE_HTML, height=620, scrolling=False)
