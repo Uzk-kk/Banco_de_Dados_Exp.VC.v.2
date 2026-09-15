@@ -1198,6 +1198,54 @@ elif aba_selecionada == "👥 Gerenciar Usuários":
     else:
         st.info("Nenhum usuário cadastrado.")
 
+    secrets_pendentes = []
+    try:
+        df_usr_check = ler_aba_padronizada("Usuários", ["Usuário", "Senha", "Nível"])
+        usuarios_planilha_lower = set(
+            df_usr_check["Usuário"].astype(str).str.strip().str.lower().tolist()
+        )
+        for user_secret, dados_secret in USUARIOS_SECRETS.items():
+            if user_secret not in usuarios_planilha_lower:
+                secrets_pendentes.append(user_secret)
+    except Exception:
+        secrets_pendentes = list(USUARIOS_SECRETS.keys())
+
+    if secrets_pendentes:
+        st.warning(
+            f"⚠️ Existem {len(secrets_pendentes)} usuário(s) apenas no secrets (bootstrap) "
+            f"que ainda não estão na planilha: {', '.join(sorted(secrets_pendentes))}."
+        )
+        if st.button("🔄 Sincronizar Secrets para Planilha"):
+            try:
+                df_usr_sync = ler_aba_padronizada("Usuários", ["Usuário", "Senha", "Nível"])
+                usuarios_planilha_lower = set(
+                    df_usr_sync["Usuário"].astype(str).str.strip().str.lower().tolist()
+                )
+                novas_linhas = []
+                for user_secret, dados_secret in USUARIOS_SECRETS.items():
+                    if user_secret in usuarios_planilha_lower:
+                        continue
+                    novas_linhas.append({
+                        "Usuário": user_secret,
+                        "Senha": str(dados_secret.get("senha", "")).strip(),
+                        "Nível": str(dados_secret.get("nivel", "")).strip(),
+                    })
+                if novas_linhas:
+                    df_usr_sync = pd.concat(
+                        [df_usr_sync, pd.DataFrame(novas_linhas)],
+                        ignore_index=True,
+                    )
+                    df_usr_sync = df_usr_sync[["Usuário", "Senha", "Nível"]]
+                    conn.update(spreadsheet=url_planilha, worksheet="Usuários", data=df_usr_sync)
+                    st.success(f"{len(novas_linhas)} usuário(s) sincronizado(s) com sucesso!")
+                    st.rerun()
+                else:
+                    st.info("Nada para sincronizar.")
+            except Exception as e:
+                st.error(f"Erro ao sincronizar secrets com a planilha: {e}")
+    else:
+        st.success("✅ Todos os usuários dos secrets já estão na planilha.")
+
     st.divider()
 
     st.subheader("➕ Adicionar Novo Usuário")
@@ -1459,10 +1507,10 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
     const cols = canvas.width / box;
     const rows = canvas.height / box;
 
-    const INTERVALO_LENTO = 400;
-    const INTERVALO_RAPIDO = 60;
-    const PONTOS_POR_ACELERACAO = 2;
-    const PASSO_ACELERACAO_MS = 20;
+    const INTERVALO_LENTO = 300;
+    const INTERVALO_RAPIDO = 30;
+    const PONTOS_POR_ACELERACAO = 1;
+    const PASSO_ACELERACAO_MS = 10;
 
     let snake, dir, nextDir, food, score, high, gameOver, timeoutId;
 
