@@ -4,6 +4,10 @@
 # Propriedade Intelectual e Desenvolvimento: Raphael Santos
 # Licença: Uso Exclusivo Autorizado - Proibida Replicação ou Alteração sem Autorização
 # Data de Criação: Set/2026
+# Atualização: Set/2026 (item 1: forçar logout de sessões ativas + validação contínua
+#              de token + encerramento automático de sessões ao remover usuário;
+#              item 2: log de auditoria para login, logout, gestão de usuários e
+#              sincronização de secrets, com nova página de consulta de logs)
 # ==============================================================================
 
 import datetime
@@ -280,6 +284,29 @@ def _preparar_df_para_sheets(df):
     df_out = df_out.replace({pd.NA: "", None: "", pd.NaT: ""})
     return df_out
 
+def registrar_log(acao, detalhe=""):
+    try:
+        df_logs = ler_aba_padronizada("Logs", ["Data/Hora", "Usuário", "Nível", "Ação", "Detalhe"])
+        agora_str = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        usuario_log = st.session_state.get("usuario_logado", "") or "—"
+        nivel_log = st.session_state.get("nivel_acesso", "") or "—"
+        nova_linha = pd.DataFrame([{
+            "Data/Hora": agora_str,
+            "Usuário": usuario_log,
+            "Nível": nivel_log,
+            "Ação": acao,
+            "Detalhe": str(detalhe),
+        }])
+        df_logs = pd.concat([df_logs, nova_linha], ignore_index=True)
+        for col_log in ["Data/Hora", "Usuário", "Nível", "Ação", "Detalhe"]:
+            if col_log not in df_logs.columns:
+                df_logs[col_log] = ""
+        df_logs = df_logs[["Data/Hora", "Usuário", "Nível", "Ação", "Detalhe"]]
+        df_logs = _preparar_df_para_sheets(df_logs)
+        conn.update(spreadsheet=url_planilha, worksheet="Logs", data=df_logs)
+    except Exception:
+        pass
+
 def render_editor_com_edicao(df, nome_aba, colunas_auditoria, validacoes, key_prefix):
     for col_aud in colunas_auditoria:
         if col_aud not in df.columns:
@@ -532,6 +559,8 @@ if not st.session_state["autenticado"]:
                 st.session_state["session_token"] = token
                 st.session_state["tentativas_login"] = 0
 
+                registrar_log("Login", "Login realizado com sucesso")
+
                 st.query_params["session"] = token
                 st.success("Login realizado com sucesso!")
                 st.rerun()
@@ -563,6 +592,7 @@ st.sidebar.write(f"Usuário: **{st.session_state.get('usuario_logado')}**")
 st.sidebar.write(f"Perfil: **{nivel}**")
 
 if st.sidebar.button("Sair"):
+    registrar_log("Logout", "Logout manual pelo usuário")
     encerrar_sessao(st.session_state.get("session_token"))
     st.session_state["autenticado"] = False
     st.session_state.pop("usuario_logado", None)
@@ -587,6 +617,7 @@ opcoes_menu = [
 ]
 if nivel in ["Admin", "Con"]:
     opcoes_menu.append("👥 Gerenciar Usuários")
+    opcoes_menu.append("📜 Logs de Auditoria")
 if st.session_state["aba_secreta_desbloqueada"]:
     opcoes_menu.append("🎮 Sala Secreta: Jogo da Forca")
     opcoes_menu.append("🐍 Sala Secreta: Jogo da Cobrinha")
@@ -1434,12 +1465,21 @@ elif aba_selecionada == "👥 Gerenciar Usuários":
 
             if st.button("🚪 Forçar Logout das Sessões Selecionadas"):
                 encerradas = 0
+                nomes_encerrados = []
                 for idx in indices_marcados:
                     if 0 <= idx < len(tokens_ordem):
                         token_alvo = tokens_ordem[idx]
                         if token_alvo in SESSOES:
+                            nome_sessao = SESSOES[token_alvo].get("usuario", "").title()
                             SESSOES.pop(token_alvo, None)
                             encerradas += 1
+                            nomes_encerrados.append(nome_sessao)
+
+                if encerradas > 0:
+                    registrar_log(
+                        "Forçou logout",
+                        f"Encerrou {encerradas} sessão(ões): {', '.join(nomes_encerrados)}"
+                    )
 
                 st.success(f"{encerradas} sessão(ões) encerrada(s) com sucesso!")
                 st.rerun()
@@ -1513,6 +1553,12 @@ elif aba_selecionada == "👥 Gerenciar Usuários":
                     df_usr_sync = df_usr_sync[["Usuário", "Senha", "Nível", "Cadastrado Por", "Data"]]
                     df_usr_sync = _preparar_df_para_sheets(df_usr_sync)
                     conn.update(spreadsheet=url_planilha, worksheet="Usuários", data=df_usr_sync)
+
+                    registrar_log(
+                        "Sincronizou secrets",
+                        f"{len(novas_linhas)} usuário(s): {', '.join([l['Usuário'] for l in novas_linhas])}"
+                    )
+
                     st.success(f"{len(novas_linhas)} usuário(s) sincronizado(s) com sucesso!")
                     st.rerun()
                 else:
@@ -1563,6 +1609,9 @@ elif aba_selecionada == "👥 Gerenciar Usuários":
                 df_usr = df_usr[["Usuário", "Senha", "Nível", "Cadastrado Por", "Data"]]
                 df_usr = _preparar_df_para_sheets(df_usr)
                 conn.update(spreadsheet=url_planilha, worksheet="Usuários", data=df_usr)
+
+                registrar_log("Criou usuário", f"{user_limpo} ({novo_nivel})")
+
                 st.success(f"Usuário '{user_limpo}' adicionado com sucesso como {novo_nivel}!")
                 st.rerun()
             except Exception as e:
@@ -1602,6 +1651,7 @@ elif aba_selecionada == "👥 Gerenciar Usuários":
             escolha = st.selectbox("Selecione o usuário que deseja remover", opcoes_remover, key="user_remover")
             if st.button("Confirmar Remoção"):
                 user_alvo = escolha.split(" (")[0].strip().lower()
+                nivel_alvo = escolha.split(" (")[-1].strip(")")
                 df_usr_final = df_usr_rem[
                     df_usr_rem["Usuário"].astype(str).str.strip().str.lower() != user_alvo
                 ]
@@ -1609,6 +1659,12 @@ elif aba_selecionada == "👥 Gerenciar Usuários":
                 try:
                     conn.update(spreadsheet=url_planilha, worksheet="Usuários", data=df_usr_final)
                     sessoes_encerradas = encerrar_sessoes_do_usuario(user_alvo)
+
+                    detalhe_remocao = f"{user_alvo} ({nivel_alvo})"
+                    if sessoes_encerradas > 0:
+                        detalhe_remocao += f" — {sessoes_encerradas} sessão(ões) encerrada(s)"
+                    registrar_log("Removeu usuário", detalhe_remocao)
+
                     if sessoes_encerradas > 0:
                         st.success(
                             f"Usuário '{user_alvo}' removido com sucesso! "
@@ -1621,6 +1677,86 @@ elif aba_selecionada == "👥 Gerenciar Usuários":
                     st.error(f"Erro ao remover usuário: {e}")
                     with st.expander("Detalhes técnicos"):
                         st.code(traceback.format_exc())
+
+elif aba_selecionada == "📜 Logs de Auditoria":
+    st.title("Logs de Auditoria")
+
+    if nivel not in ["Admin", "Con"]:
+        st.error("Você não tem permissão para acessar esta página.")
+        st.stop()
+
+    st.write("Histórico de ações sensíveis do sistema — ordenado do mais recente para o mais antigo.")
+
+    try:
+        df_logs = ler_aba_padronizada("Logs", ["Data/Hora", "Usuário", "Nível", "Ação", "Detalhe"])
+    except Exception as e:
+        st.error(f"Erro ao ler a aba 'Logs': {e}")
+        df_logs = pd.DataFrame({c: pd.Series(dtype="object") for c in ["Data/Hora", "Usuário", "Nível", "Ação", "Detalhe"]})
+
+    if df_logs.empty:
+        st.info("Nenhum log registrado ainda. As ações começam a ser gravadas a partir da próxima interação.")
+    else:
+        df_logs = df_logs.reset_index(drop=True)
+
+        col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+
+        with col_f1:
+            usuarios_disponiveis = sorted(set(df_logs["Usuário"].astype(str).str.strip().tolist()))
+            usuarios_disponiveis = [u for u in usuarios_disponiveis if u and u != "—"]
+            filtro_usuario = st.selectbox(
+                "Filtrar por usuário",
+                ["Todos"] + usuarios_disponiveis,
+                key="log_filtro_usuario"
+            )
+
+        with col_f2:
+            acoes_disponiveis = sorted(set(df_logs["Ação"].astype(str).str.strip().tolist()))
+            acoes_disponiveis = [a for a in acoes_disponiveis if a]
+            filtro_acao = st.selectbox(
+                "Filtrar por ação",
+                ["Todas"] + acoes_disponiveis,
+                key="log_filtro_acao"
+            )
+
+        with col_f3:
+            niveis_disponiveis = sorted(set(df_logs["Nível"].astype(str).str.strip().tolist()))
+            niveis_disponiveis = [n for n in niveis_disponiveis if n and n != "—"]
+            filtro_nivel = st.selectbox(
+                "Filtrar por nível",
+                ["Todos"] + niveis_disponiveis,
+                key="log_filtro_nivel"
+            )
+
+        with col_f4:
+            limite_exibicao = st.selectbox(
+                "Mostrar últimos",
+                [100, 250, 500, 1000, 5000],
+                index=2,
+                key="log_limite"
+            )
+
+        df_filtrado = df_logs.copy()
+
+        if filtro_usuario != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["Usuário"].astype(str).str.strip() == filtro_usuario]
+
+        if filtro_acao != "Todas":
+            df_filtrado = df_filtrado[df_filtrado["Ação"].astype(str).str.strip() == filtro_acao]
+
+        if filtro_nivel != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["Nível"].astype(str).str.strip() == filtro_nivel]
+
+        df_filtrado = df_filtrado.iloc[::-1].reset_index(drop=True)
+
+        total_filtrado = len(df_filtrado)
+        df_exibicao = df_filtrado.head(limite_exibicao).copy()
+
+        st.info(
+            f"Exibindo **{len(df_exibicao)}** de **{total_filtrado}** registro(s) "
+            f"(total geral: **{len(df_logs)}**)."
+        )
+
+        st.dataframe(df_exibicao, use_container_width=True, hide_index=True)
 
 elif aba_selecionada == "🎮 Sala Secreta: Jogo da Forca":
     st.title("🕵️‍♂️ Área Secreta - Jogo da Forca")
