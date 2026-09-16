@@ -4,8 +4,6 @@
 # Propriedade Intelectual e Desenvolvimento: Raphael Santos
 # Licença: Uso Exclusivo Autorizado - Proibida Replicação ou Alteração sem Autorização
 # Data de Criação: Set/2026
-# Atualização: Set/2026 (ajuste visual dos botões: texto roxo em fundo amarelo,
-#              invertendo no hover para texto amarelo em fundo roxo)
 # ==============================================================================
 
 import datetime
@@ -432,6 +430,18 @@ def validar_sessao(token: str):
 def encerrar_sessao(token: str):
     SESSOES.pop(token, None)
 
+def encerrar_sessoes_do_usuario(nome_usuario: str) -> int:
+    nome_lower = str(nome_usuario).strip().lower()
+    if not nome_lower:
+        return 0
+    tokens_para_remover = [
+        token for token, dados in list(SESSOES.items())
+        if str(dados.get("usuario", "")).strip().lower() == nome_lower
+    ]
+    for token in tokens_para_remover:
+        SESSOES.pop(token, None)
+    return len(tokens_para_remover)
+
 query_params = st.query_params
 
 if "autenticado" not in st.session_state:
@@ -449,6 +459,20 @@ if not st.session_state["autenticado"] and "session" in query_params:
     else:
         st.query_params.clear()
 
+if st.session_state.get("autenticado"):
+    token_atual = st.session_state.get("session_token")
+    sessao_atual = SESSOES.get(token_atual, {}) if token_atual else {}
+    token_valido = bool(token_atual) and bool(sessao_atual) and time.time() <= sessao_atual.get("expira_em", 0)
+    if not token_valido:
+        st.session_state["mensagem_sessao_encerrada"] = "Sua sessão foi encerrada. Faça login novamente."
+        st.session_state["autenticado"] = False
+        st.session_state.pop("usuario_logado", None)
+        st.session_state.pop("nivel_acesso", None)
+        st.session_state.pop("session_token", None)
+        st.session_state["aba_secreta_desbloqueada"] = False
+        st.query_params.clear()
+        st.rerun()
+
 MAX_TENTATIVAS = 5
 BLOQUEIO_SEGUNDOS = 60
 
@@ -459,6 +483,10 @@ if "bloqueado_ate" not in st.session_state:
 
 if not st.session_state["autenticado"]:
     st.title("Acesso Restrito")
+
+    if st.session_state.get("mensagem_sessao_encerrada"):
+        st.warning(st.session_state["mensagem_sessao_encerrada"])
+        del st.session_state["mensagem_sessao_encerrada"]
 
     USUARIOS = carregar_usuarios()
 
@@ -1369,16 +1397,52 @@ elif aba_selecionada == "👥 Gerenciar Usuários":
 
     st.subheader("🟢 Sessões Ativas")
     agora_ts = time.time()
+
+    tokens_ordem = []
     sessoes_ativas = []
     for token, dados in list(SESSOES.items()):
         if agora_ts <= dados.get("expira_em", 0):
+            tokens_ordem.append(token)
             sessoes_ativas.append({
+                "Encerrar": False,
                 "Usuário": dados["usuario"].title(),
                 "Nível": dados["nivel"],
                 "Expira em": datetime.datetime.fromtimestamp(dados["expira_em"]).strftime("%d/%m/%Y %H:%M:%S"),
             })
+
     if sessoes_ativas:
-        st.dataframe(pd.DataFrame(sessoes_ativas), use_container_width=True, hide_index=True)
+        df_sessoes = pd.DataFrame(sessoes_ativas).reset_index(drop=True)
+        tabela_sessoes = st.data_editor(
+            df_sessoes,
+            hide_index=True,
+            use_container_width=True,
+            num_rows="fixed",
+            disabled=["Usuário", "Nível", "Expira em"],
+            key="editor_sessoes_ativas",
+        )
+
+        linhas_marcadas_sessao = tabela_sessoes[tabela_sessoes["Encerrar"] == True]
+
+        if not linhas_marcadas_sessao.empty:
+            indices_marcados = linhas_marcadas_sessao.index.tolist()
+            usuarios_a_encerrar = [tabela_sessoes.loc[i, "Usuário"] for i in indices_marcados]
+
+            st.warning(
+                f"⚠️ {len(indices_marcados)} sessão(ões) selecionada(s) para encerramento: "
+                f"{', '.join(usuarios_a_encerrar)}."
+            )
+
+            if st.button("🚪 Forçar Logout das Sessões Selecionadas"):
+                encerradas = 0
+                for idx in indices_marcados:
+                    if 0 <= idx < len(tokens_ordem):
+                        token_alvo = tokens_ordem[idx]
+                        if token_alvo in SESSOES:
+                            SESSOES.pop(token_alvo, None)
+                            encerradas += 1
+
+                st.success(f"{encerradas} sessão(ões) encerrada(s) com sucesso!")
+                st.rerun()
     else:
         st.info("Nenhuma sessão ativa no momento.")
 
@@ -1544,7 +1608,14 @@ elif aba_selecionada == "👥 Gerenciar Usuários":
                 df_usr_final = _preparar_df_para_sheets(df_usr_final)
                 try:
                     conn.update(spreadsheet=url_planilha, worksheet="Usuários", data=df_usr_final)
-                    st.success(f"Usuário '{user_alvo}' removido com sucesso!")
+                    sessoes_encerradas = encerrar_sessoes_do_usuario(user_alvo)
+                    if sessoes_encerradas > 0:
+                        st.success(
+                            f"Usuário '{user_alvo}' removido com sucesso! "
+                            f"{sessoes_encerradas} sessão(ões) ativa(s) encerrada(s) automaticamente."
+                        )
+                    else:
+                        st.success(f"Usuário '{user_alvo}' removido com sucesso!")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao remover usuário: {e}")
