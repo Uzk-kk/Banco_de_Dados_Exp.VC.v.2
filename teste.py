@@ -4,10 +4,6 @@
 # Propriedade Intelectual e Desenvolvimento: Raphael Santos
 # Licença: Uso Exclusivo Autorizado - Proibida Replicação ou Alteração sem Autorização
 # Data de Criação: Set/2026
-# Atualização: Set/2026 (item 1: forçar logout de sessões ativas + validação contínua
-#              de token + encerramento automático de sessões ao remover usuário;
-#              item 2: log de auditoria para login, logout, gestão de usuários e
-#              sincronização de secrets, com nova página de consulta de logs)
 # ==============================================================================
 
 import datetime
