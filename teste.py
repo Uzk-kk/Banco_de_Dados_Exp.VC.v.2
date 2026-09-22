@@ -153,23 +153,18 @@ st.markdown(
     }
 
     .footer-autoria {
-        position: fixed;
-        left: 0;
-        bottom: 0;
-        width: 100%;
         background-color: #1E0A22;
         color: #FFD80F;
         text-align: center;
-        padding: 8px 0;
+        padding: 12px 20px;
         font-size: 12px;
         font-weight: bold;
-        z-index: 9999;
         border-top: 1px solid #FFD80F;
+        border-radius: 8px;
+        margin-top: 80px;
+        margin-bottom: 20px;
     }
     </style>
-    <div class="footer-autoria">
-        Desenvolvido exclusivamente por Raphael Santos | © Todos os direitos reservados
-    </div>
     """,
     unsafe_allow_html=True,
 )
@@ -303,6 +298,17 @@ def registrar_log(acao, detalhe=""):
     except Exception:
         pass
 
+def _previa_linha_para_confirmacao(row, colunas_chave):
+    partes = []
+    for col in colunas_chave:
+        if col in row.index:
+            valor = str(row[col]).strip()
+            if valor and valor.lower() != "none":
+                partes.append(f"{col}: {valor}")
+    if not partes:
+        return "(linha sem dados visíveis)"
+    return " | ".join(partes[:3])
+
 def render_editor_com_edicao(df, nome_aba, colunas_auditoria, validacoes, key_prefix):
     for col_aud in colunas_auditoria:
         if col_aud not in df.columns:
@@ -348,6 +354,8 @@ def render_editor_com_edicao(df, nome_aba, colunas_auditoria, validacoes, key_pr
     indices_excluir = linhas_marcadas_excluir.index.tolist()
     conflitos = sorted(set(indices_alterados) & set(indices_excluir))
 
+    chave_confirmacao = f"confirmacao_exclusao_{key_prefix}"
+
     if indices_alterados:
         st.warning(f"⚠️ Você tem {len(indices_alterados)} linha(s) com alterações não salvas. Clique em 'Salvar Alterações' para aplicar.")
 
@@ -355,6 +363,9 @@ def render_editor_com_edicao(df, nome_aba, colunas_auditoria, validacoes, key_pr
 
     with col_btn1:
         if st.button("💾 Salvar Alterações", key=f"salvar_{key_prefix}"):
+            if chave_confirmacao in st.session_state:
+                del st.session_state[chave_confirmacao]
+
             if conflitos:
                 st.error(
                     "Conflito detectado: você não pode editar e marcar para excluir a mesma linha ao mesmo tempo. "
@@ -411,19 +422,64 @@ def render_editor_com_edicao(df, nome_aba, colunas_auditoria, validacoes, key_pr
                         f"Desfaça as edições das linhas: {[i + 1 for i in conflitos]}."
                     )
                 else:
-                    df_final = tabela_editavel[tabela_editavel["Excluir"] == False].drop(columns=["Excluir"])
-                    df_final = df_final.copy()
+                    st.session_state[chave_confirmacao] = {
+                        "indices": list(indices_excluir),
+                        "df_congelado": df_original.copy(),
+                    }
+                    st.rerun()
+
+    if chave_confirmacao in st.session_state and st.session_state[chave_confirmacao]:
+        dados_pendentes = st.session_state[chave_confirmacao]
+        indices_pendentes = dados_pendentes.get("indices", [])
+        df_congelado = dados_pendentes.get("df_congelado", pd.DataFrame())
+
+        if indices_pendentes:
+            st.markdown("---")
+            st.error(
+                f"⚠️ **Confirmação de Exclusão** — Você está prestes a remover "
+                f"**{len(indices_pendentes)} registro(s)** de `{nome_aba}`. "
+                f"Esta ação **não pode ser desfeita**."
+            )
+
+            st.write("**Registros que serão removidos:**")
+            colunas_chave = [c for c in df_congelado.columns if c not in colunas_auditoria][:4]
+
+            for idx in indices_pendentes:
+                if idx < len(df_congelado):
+                    linha = df_congelado.iloc[idx]
+                    previa = _previa_linha_para_confirmacao(linha, colunas_chave)
+                    st.write(f"- **Linha {idx + 1}:** {previa}")
+
+            st.write("")
+
+            col_c1, col_c2 = st.columns([1, 1])
+
+            with col_c1:
+                if st.button("✅ Confirmar Exclusão Definitiva", key=f"confirma_remocao_{key_prefix}"):
+                    df_final = df_congelado.drop(index=indices_pendentes, errors="ignore").reset_index(drop=True)
+
                     for col in df_final.columns:
                         df_final[col] = df_final[col].astype("object")
+
                     df_final = _preparar_df_para_sheets(df_final)
+
                     try:
                         conn.update(spreadsheet=url_planilha, worksheet=nome_aba, data=df_final)
-                        st.success("Registro(s) removido(s) com sucesso!")
+                        if chave_confirmacao in st.session_state:
+                            del st.session_state[chave_confirmacao]
+                        st.success(f"{len(indices_pendentes)} registro(s) removido(s) com sucesso!")
                         st.rerun()
                     except Exception as ex_del:
                         st.error(f"Erro ao excluir na planilha: {ex_del}")
                         with st.expander("Detalhes técnicos do erro"):
                             st.code(traceback.format_exc())
+
+            with col_c2:
+                if st.button("❌ Cancelar Exclusão", key=f"cancela_remocao_{key_prefix}"):
+                    if chave_confirmacao in st.session_state:
+                        del st.session_state[chave_confirmacao]
+                    st.info("Exclusão cancelada. Nenhum registro foi removido.")
+                    st.rerun()
 
 @st.cache_resource
 def obter_armazenamento_sessoes():
@@ -2078,3 +2134,12 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
 """
 
     components.html(SNAKE_HTML, height=620, scrolling=False)
+
+st.markdown(
+    """
+    <div class="footer-autoria">
+        Desenvolvido exclusivamente por Raphael Santos | © Todos os direitos reservados
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
