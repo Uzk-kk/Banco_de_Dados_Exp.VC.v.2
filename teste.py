@@ -670,7 +670,7 @@ opcoes_menu = [
 if nivel in ["Admin", "Con"]:
     opcoes_menu.append("👥 Gerenciar Usuários")
     opcoes_menu.append("📜 Logs de Auditoria")
-if st.session_state["aba_secreta_desbloqueada"]:
+if nivel == "Con" and st.session_state["aba_secreta_desbloqueada"]:
     opcoes_menu.append("🎮 Sala Secreta: Jogo da Forca")
     opcoes_menu.append("🐍 Sala Secreta: Jogo da Cobrinha")
 
@@ -681,8 +681,9 @@ aba_selecionada = st.sidebar.radio("Navegação", opcoes_menu, key="menu_navegac
 
 st.sidebar.markdown('<span id="secret-btn-marker"></span>', unsafe_allow_html=True)
 if st.sidebar.button(" ", key="btn_secreto"):
-    st.session_state["aba_secreta_desbloqueada"] = not st.session_state["aba_secreta_desbloqueada"]
-    st.rerun()
+    if nivel == "Con":
+        st.session_state["aba_secreta_desbloqueada"] = not st.session_state["aba_secreta_desbloqueada"]
+        st.rerun()
 
 if aba_selecionada == "Cadastro Rápido":
     st.title("Cadastro Rápido de Dados")
@@ -1811,6 +1812,10 @@ elif aba_selecionada == "📜 Logs de Auditoria":
         st.dataframe(df_exibicao, use_container_width=True, hide_index=True)
 
 elif aba_selecionada == "🎮 Sala Secreta: Jogo da Forca":
+    if nivel != "Con":
+        st.error("Você não tem permissão para acessar esta sala secreta.")
+        st.stop()
+
     st.title("🕵️‍♂️ Área Secreta - Jogo da Forca")
     st.write("Parabéns por encontrar o modo secreto! Descanse um pouco e jogue uma partida.")
 
@@ -1930,6 +1935,10 @@ elif aba_selecionada == "🎮 Sala Secreta: Jogo da Forca":
                 st.rerun()
 
 elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
+    if nivel != "Con":
+        st.error("Você não tem permissão para acessar esta sala secreta.")
+        st.stop()
+
     st.title("🐍 Área Secreta - Jogo da Cobrinha")
     st.write(
         "Você desbloqueou o segundo modo secreto! Use as setas ⬆ ⬇ ⬅ ➡ do teclado "
