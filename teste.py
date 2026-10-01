@@ -8,15 +8,42 @@
 
 import datetime
 import random
-import secrets  
-import hashlib  
-import hmac     
-import time     
+import secrets
+import hashlib
+import hmac
+import time
 import traceback
+import uuid
+import re
+import io
+import base64
+import threading
+import unicodedata
+
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_gsheets import GSheetsConnection
+
+try:
+    import altair as alt
+except Exception:
+    alt = None
+
+try:
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaIoBaseUpload
+    from googleapiclient.errors import HttpError
+    DRIVE_LIBS_AVAILABLE = True
+except Exception:
+    Credentials = None
+    Request = None
+    build = None
+    MediaIoBaseUpload = None
+    HttpError = Exception
+    DRIVE_LIBS_AVAILABLE = False
 
 st.set_page_config(page_title="Sistema de Cadastro e Gestão", layout="wide")
 
@@ -481,6 +508,1317 @@ def render_editor_com_edicao(df, nome_aba, colunas_auditoria, validacoes, key_pr
                     st.info("Exclusão cancelada. Nenhum registro foi removido.")
                     st.rerun()
 
+
+# ==============================================================================
+# MÓDULO: ANDAMENTO DE ENCERRAMENTOS
+# ==============================================================================
+
+COLUNAS_ENCERRAMENTOS = [
+    "UUID Processo",
+    "ID Processo",
+    "Tipo Processo",
+    "Loja",
+    "Apelidos da Loja",
+    "Data de Criação",
+    "Notificação",
+    "Data do envio da notificação",
+    "Data do fechamento",
+    "Contagem mercadoria",
+    "Data da contagem",
+    "Retirada mercadoria",
+    "Data da retirada",
+    "Desmobilização",
+    "Data da desmobilização",
+    "Retirada da fachada / comunicação visual",
+    "Data da retirada da com. visual",
+    "Contas de consumo",
+    "Data do envio das contas de consumo",
+    "Vistoria de devolução",
+    "Data da vistoria de devolução",
+    "Entrega das chaves",
+    "Data da entrega das chaves",
+    "Orçamentos enviados?",
+    "Adequações",
+    "Distrato contas a pagar",
+    "Data do envio para o contas a pagar",
+    "Distrato jurídico",
+    "Data do envio para o jurídico",
+    "Distrato aprovação",
+    "Data do envio do distrato para aprovação",
+    "Distrato",
+    "Contas pagamento",
+    "Data do envio da solicitação de pagamento para o contas a pagar",
+    "Para legal baixa no CNPJ",
+    "Próximo passo / observações",
+    "Estado do processo",
+    "Data de conclusão",
+    "Data de arquivamento",
+    "Arquivado por",
+    "Motivo do arquivamento",
+    "Cadastrado Por",
+    "Última Alteração Por",
+    "Data da Alteração",
+]
+
+COLUNAS_HISTORICO_ENC = [
+    "ID Histórico",
+    "UUID Processo",
+    "ID Processo",
+    "Loja",
+    "Data/Hora",
+    "Usuário",
+    "Nível",
+    "Tipo de ação",
+    "Campo alterado",
+    "Valor anterior",
+    "Valor novo",
+    "Detalhe",
+]
+
+COLUNAS_DOCUMENTOS_ENC = [
+    "UUID Documento",
+    "ID Documento",
+    "UUID Processo",
+    "ID Processo",
+    "Loja",
+    "Categoria",
+    "Descrição",
+    "Nome original",
+    "Drive File ID",
+    "SHA-256",
+    "Data do envio",
+    "Enviado Por",
+    "Tamanho (bytes)",
+    "Tipo MIME",
+    "Estado Documento",
+    "Excluído por",
+    "Data da exclusão",
+]
+
+COLUNAS_CONTROLE_SISTEMA = [
+    "Chave",
+    "Valor",
+    "Atualizado em",
+    "Atualizado por",
+]
+
+STATUS_ETAPAS_ENC = {
+    "Notificação": {
+        "opcoes": ["Pendente", "Enviada"],
+        "terminais": {"Enviada"},
+    },
+    "Contagem mercadoria": {
+        "opcoes": ["Pendente", "Agendado", "Concluído"],
+        "terminais": {"Concluído"},
+    },
+    "Retirada mercadoria": {
+        "opcoes": ["Pendente", "Agendado", "Concluído"],
+        "terminais": {"Concluído"},
+    },
+    "Desmobilização": {
+        "opcoes": ["Pendente", "Agendado", "Concluído"],
+        "terminais": {"Concluído"},
+    },
+    "Retirada da fachada / comunicação visual": {
+        "opcoes": ["Pendente", "Agendado", "Concluído"],
+        "terminais": {"Concluído"},
+    },
+    "Contas de consumo": {
+        "opcoes": ["Pendente", "Agendado", "Concluído"],
+        "terminais": {"Concluído"},
+    },
+    "Vistoria de devolução": {
+        "opcoes": ["Pendente", "Agendado", "Concluído"],
+        "terminais": {"Concluído"},
+    },
+    "Entrega das chaves": {
+        "opcoes": ["Pendente", "Agendado", "Concluído"],
+        "terminais": {"Concluído"},
+    },
+    "Adequações": {
+        "opcoes": ["Pendente", "Agendado", "Concluído", "Não se aplica"],
+        "terminais": {"Concluído", "Não se aplica"},
+        "nao_se_aplica": True,
+    },
+    "Distrato contas a pagar": {
+        "opcoes": ["Pendente", "Agendado", "Enviado"],
+        "terminais": {"Enviado"},
+    },
+    "Distrato jurídico": {
+        "opcoes": ["Pendente", "Enviado", "Concluído"],
+        "terminais": {"Concluído"},
+    },
+    "Distrato aprovação": {
+        "opcoes": ["Pendente", "Enviado", "Aprovado"],
+        "terminais": {"Aprovado"},
+    },
+    "Distrato": {
+        "opcoes": ["Pendente", "Enviado", "Assinado"],
+        "terminais": {"Assinado"},
+    },
+    "Contas pagamento": {
+        "opcoes": ["Pendente", "Enviado", "Pago"],
+        "terminais": {"Pago"},
+    },
+    "Para legal baixa no CNPJ": {
+        "opcoes": ["Pendente", "Enviado", "Baixado"],
+        "terminais": {"Baixado"},
+    },
+}
+
+# Data obrigatória quando a etapa chega a estes status.
+REGRAS_DATA_ENC = {
+    "Notificação": ("Data do envio da notificação", {"Enviada"}),
+    "Contagem mercadoria": ("Data da contagem", {"Agendado", "Concluído"}),
+    "Retirada mercadoria": ("Data da retirada", {"Agendado", "Concluído"}),
+    "Desmobilização": ("Data da desmobilização", {"Agendado", "Concluído"}),
+    "Retirada da fachada / comunicação visual": (
+        "Data da retirada da com. visual", {"Agendado", "Concluído"}
+    ),
+    "Contas de consumo": (
+        "Data do envio das contas de consumo", {"Agendado", "Concluído"}
+    ),
+    "Vistoria de devolução": (
+        "Data da vistoria de devolução", {"Agendado", "Concluído"}
+    ),
+    "Entrega das chaves": (
+        "Data da entrega das chaves", {"Agendado", "Concluído"}
+    ),
+    "Distrato contas a pagar": (
+        "Data do envio para o contas a pagar", {"Agendado", "Enviado"}
+    ),
+    "Distrato jurídico": (
+        "Data do envio para o jurídico", {"Enviado", "Concluído"}
+    ),
+    "Distrato aprovação": (
+        "Data do envio do distrato para aprovação", {"Enviado", "Aprovado"}
+    ),
+    "Contas pagamento": (
+        "Data do envio da solicitação de pagamento para o contas a pagar", {"Enviado", "Pago"}
+    ),
+}
+
+PERMISSOES_DOCUMENTOS = {
+    "Leitor": {"visualizar": True, "enviar": False, "baixar": False, "excluir": False},
+    "Editor": {"visualizar": True, "enviar": True, "baixar": True, "excluir": False},
+    "Admin": {"visualizar": True, "enviar": True, "baixar": True, "excluir": True},
+    "Con": {"visualizar": True, "enviar": True, "baixar": True, "excluir": True},
+}
+
+CATEGORIAS_DOCUMENTOS_ENC = [
+    "Contrato",
+    "Notificação",
+    "Vistoria de entrada",
+    "Vistoria de devolução",
+    "Entrega das chaves",
+    "Contagem de mercadoria",
+    "Retirada de mercadoria",
+    "Comunicação visual",
+    "Contas de consumo",
+    "Adequações",
+    "Distrato",
+    "Jurídico",
+    "Financeiro / Pagamento",
+    "Baixa CNPJ",
+    "Outros",
+]
+
+MAX_PDF_MB = 30
+DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
+ID_PROCESSO_LOCK = threading.Lock()
+
+
+def _texto_limpo(valor):
+    if valor is None or pd.isna(valor):
+        return ""
+    texto = str(valor).strip()
+    if texto.lower() in {"none", "nan", "nat"}:
+        return ""
+    return texto
+
+
+def _normalizar_texto(valor):
+    texto = unicodedata.normalize("NFKD", _texto_limpo(valor))
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    texto = texto.lower()
+    texto = re.sub(r"[^a-z0-9]+", " ", texto)
+    return re.sub(r"\s+", " ", texto).strip()
+
+
+def _formatar_data(valor):
+    if valor is None or valor == "":
+        return ""
+    if isinstance(valor, datetime.datetime):
+        valor = valor.date()
+    if isinstance(valor, datetime.date):
+        return valor.strftime("%d/%m/%Y")
+    return _texto_limpo(valor)
+
+
+def _parse_data(valor):
+    texto = _texto_limpo(valor)
+    if not texto:
+        return None
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d/%m/%Y %H:%M", "%d/%m/%Y %H:%M:%S"):
+        try:
+            return datetime.datetime.strptime(texto, fmt).date()
+        except ValueError:
+            continue
+    try:
+        convertido = pd.to_datetime(texto, dayfirst=True, errors="coerce")
+        if pd.notna(convertido):
+            return convertido.date()
+    except Exception:
+        pass
+    return None
+
+
+def _data_input_opcional(label, valor_atual, key, disabled=False, help_text=None):
+    valor = _parse_data(valor_atual)
+    return st.date_input(
+        label,
+        value=valor,
+        format="DD/MM/YYYY",
+        key=key,
+        disabled=disabled,
+        help=help_text,
+    )
+
+
+def _indice_status(campo, valor):
+    opcoes = STATUS_ETAPAS_ENC[campo]["opcoes"]
+    valor = _texto_limpo(valor)
+    return opcoes.index(valor) if valor in opcoes else 0
+
+
+def _separar_apelidos(valor):
+    if not _texto_limpo(valor):
+        return []
+    partes = re.split(r"[;\n,]+", _texto_limpo(valor))
+    return [p.strip() for p in partes if p.strip()]
+
+
+def _juntar_apelidos(valor):
+    if isinstance(valor, (list, tuple, set)):
+        itens = [str(v).strip() for v in valor if str(v).strip()]
+    else:
+        itens = _separar_apelidos(valor)
+    # remove duplicatas mantendo ordem
+    vistos = set()
+    saida = []
+    for item in itens:
+        norm = _normalizar_texto(item)
+        if norm and norm not in vistos:
+            vistos.add(norm)
+            saida.append(item)
+    return "; ".join(saida)
+
+
+def _opcao_documento_permitida(acao):
+    nivel_atual = st.session_state.get("nivel_acesso", "Leitor")
+    return bool(PERMISSOES_DOCUMENTOS.get(nivel_atual, {}).get(acao, False))
+
+
+def _obter_df_encerramentos():
+    return ler_aba_padronizada("Encerramentos", COLUNAS_ENCERRAMENTOS)
+
+
+def _obter_processo_por_uuid(uuid_processo, df=None):
+    if df is None:
+        df = _obter_df_encerramentos()
+    if df.empty:
+        return None, None
+    mascara = df["UUID Processo"].astype(str).str.strip() == str(uuid_processo).strip()
+    indices = df.index[mascara].tolist()
+    if not indices:
+        return None, None
+    idx = indices[0]
+    return idx, df.loc[idx].copy()
+
+
+def _maior_sequencia_existente(prefixo, df_enc=None):
+    if df_enc is None:
+        df_enc = _obter_df_encerramentos()
+    maior = 0
+    if df_enc.empty or "ID Processo" not in df_enc.columns:
+        return maior
+    padrao = re.compile(rf"^{re.escape(prefixo.upper())}-\d{{4}}-(\d+)$")
+    for valor in df_enc["ID Processo"].astype(str):
+        m = padrao.match(valor.strip().upper())
+        if m:
+            maior = max(maior, int(m.group(1)))
+    return maior
+
+
+def gerar_id_processo(prefixo="ENC"):
+    """Gera PREFIXO-ANO-SEQUÊNCIA. A sequência é contínua e independente por prefixo."""
+    prefixo = str(prefixo).strip().upper()
+    if not re.fullmatch(r"[A-Z]{2,6}", prefixo):
+        raise ValueError("Prefixo de processo inválido.")
+
+    with ID_PROCESSO_LOCK:
+        df_enc = _obter_df_encerramentos()
+        maior_existente = _maior_sequencia_existente(prefixo, df_enc)
+
+        df_ctrl = ler_aba_padronizada("Controle do Sistema", COLUNAS_CONTROLE_SISTEMA)
+        chave = f"SEQ_{prefixo}"
+        valor_ctrl = 0
+        idx_ctrl = None
+
+        if not df_ctrl.empty:
+            mascara = df_ctrl["Chave"].astype(str).str.strip().str.upper() == chave
+            indices = df_ctrl.index[mascara].tolist()
+            if indices:
+                idx_ctrl = indices[0]
+                try:
+                    valor_ctrl = int(float(_texto_limpo(df_ctrl.at[idx_ctrl, "Valor"]) or 0))
+                except Exception:
+                    valor_ctrl = 0
+
+        proximo = max(maior_existente, valor_ctrl) + 1
+        agora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        usuario = st.session_state.get("usuario_logado", "")
+
+        if idx_ctrl is None:
+            nova = pd.DataFrame([{
+                "Chave": chave,
+                "Valor": str(proximo),
+                "Atualizado em": agora,
+                "Atualizado por": usuario,
+            }])
+            df_ctrl = pd.concat([df_ctrl, nova], ignore_index=True)
+        else:
+            df_ctrl.at[idx_ctrl, "Valor"] = str(proximo)
+            df_ctrl.at[idx_ctrl, "Atualizado em"] = agora
+            df_ctrl.at[idx_ctrl, "Atualizado por"] = usuario
+
+        try:
+            conn.update(
+                spreadsheet=url_planilha,
+                worksheet="Controle do Sistema",
+                data=_preparar_df_para_sheets(df_ctrl[COLUNAS_CONTROLE_SISTEMA]),
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "Não foi possível atualizar a aba 'Controle do Sistema'. "
+                "Confirme se ela existe com as colunas corretas."
+            ) from exc
+
+        ano = datetime.date.today().year
+        return f"{prefixo}-{ano}-{proximo:06d}"
+
+
+def _linha_historico(processo, tipo_acao, campo="", valor_anterior="", valor_novo="", detalhe=""):
+    return {
+        "ID Histórico": str(uuid.uuid4()),
+        "UUID Processo": _texto_limpo(processo.get("UUID Processo", "")),
+        "ID Processo": _texto_limpo(processo.get("ID Processo", "")),
+        "Loja": _texto_limpo(processo.get("Loja", "")),
+        "Data/Hora": datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        "Usuário": st.session_state.get("usuario_logado", "") or "—",
+        "Nível": st.session_state.get("nivel_acesso", "") or "—",
+        "Tipo de ação": tipo_acao,
+        "Campo alterado": campo,
+        "Valor anterior": _texto_limpo(valor_anterior),
+        "Valor novo": _texto_limpo(valor_novo),
+        "Detalhe": detalhe,
+    }
+
+
+def registrar_historico_encerramento(processo, eventos):
+    """eventos: lista de dicts com tipo_acao/campo/valor_anterior/valor_novo/detalhe."""
+    if not eventos:
+        return
+    try:
+        df_hist = ler_aba_padronizada("Histórico Encerramentos", COLUNAS_HISTORICO_ENC)
+        linhas = []
+        for evento in eventos:
+            linhas.append(_linha_historico(
+                processo,
+                evento.get("tipo_acao", "Alteração"),
+                evento.get("campo", ""),
+                evento.get("valor_anterior", ""),
+                evento.get("valor_novo", ""),
+                evento.get("detalhe", ""),
+            ))
+        df_hist = pd.concat([df_hist, pd.DataFrame(linhas)], ignore_index=True)
+        df_hist = df_hist[COLUNAS_HISTORICO_ENC]
+        conn.update(
+            spreadsheet=url_planilha,
+            worksheet="Histórico Encerramentos",
+            data=_preparar_df_para_sheets(df_hist),
+        )
+    except Exception as exc:
+        registrar_log(
+            "Falha histórico encerramento",
+            f"{_texto_limpo(processo.get('ID Processo', ''))}: {exc}",
+        )
+        st.warning(
+            "A alteração foi salva, mas não foi possível registrar o histórico detalhado. "
+            "Verifique a aba 'Histórico Encerramentos'."
+        )
+
+
+def validar_consistencia_encerramento(row):
+    erros = []
+    if not _texto_limpo(row.get("Loja", "")):
+        erros.append("O campo 'Loja' é obrigatório.")
+    if not _texto_limpo(row.get("Data do fechamento", "")):
+        erros.append("A 'Data do fechamento' é obrigatória.")
+
+    for campo_status, (campo_data, status_que_exigem_data) in REGRAS_DATA_ENC.items():
+        status = _texto_limpo(row.get(campo_status, ""))
+        data_val = _texto_limpo(row.get(campo_data, ""))
+        if status in status_que_exigem_data and not data_val:
+            erros.append(f"'{campo_data}' é obrigatória quando '{campo_status}' está como '{status}'.")
+    return erros
+
+
+def calcular_progresso_encerramento(row):
+    total = 0
+    finalizadas = 0
+    pendentes = 0
+    andamento = 0
+
+    for campo, regra in STATUS_ETAPAS_ENC.items():
+        status = _texto_limpo(row.get(campo, "")) or "Pendente"
+        if campo == "Adequações" and status == "Não se aplica":
+            continue
+
+        total += 1
+        if status in regra["terminais"]:
+            finalizadas += 1
+        elif status == "Pendente":
+            pendentes += 1
+        else:
+            andamento += 1
+
+    percentual = (finalizadas / total * 100) if total else 100.0
+    return {
+        "total": total,
+        "finalizadas": finalizadas,
+        "pendentes": pendentes,
+        "andamento": andamento,
+        "percentual": percentual,
+    }
+
+
+def processo_pronto_para_concluir(row):
+    for campo, regra in STATUS_ETAPAS_ENC.items():
+        status = _texto_limpo(row.get(campo, "")) or "Pendente"
+        if campo == "Adequações" and status == "Não se aplica":
+            continue
+        if status not in regra["terminais"]:
+            return False
+    return len(validar_consistencia_encerramento(row)) == 0
+
+
+def _salvar_df_encerramentos(df):
+    df = df[COLUNAS_ENCERRAMENTOS]
+    conn.update(
+        spreadsheet=url_planilha,
+        worksheet="Encerramentos",
+        data=_preparar_df_para_sheets(df),
+    )
+
+
+def salvar_alteracoes_encerramento(uuid_processo, alteracoes, detalhe_acao="Atualização do acompanhamento"):
+    df = _obter_df_encerramentos()
+    idx, original = _obter_processo_por_uuid(uuid_processo, df)
+    if idx is None:
+        return False, "Processo não encontrado. Atualize a página e tente novamente."
+
+    if _texto_limpo(original.get("Estado do processo", "Ativo")) != "Ativo":
+        return False, "Somente processos ativos podem ser alterados no Acompanhamento."
+
+    novo = original.copy()
+    eventos = []
+    for campo, valor in alteracoes.items():
+        if campo not in df.columns:
+            continue
+        if isinstance(valor, (datetime.date, datetime.datetime)):
+            valor = _formatar_data(valor)
+        elif campo == "Apelidos da Loja":
+            valor = _juntar_apelidos(valor)
+        else:
+            valor = _texto_limpo(valor)
+
+        anterior = original.get(campo, "")
+        if _valor_mudou(anterior, valor):
+            novo[campo] = valor
+            eventos.append({
+                "tipo_acao": "Alteração",
+                "campo": campo,
+                "valor_anterior": anterior,
+                "valor_novo": valor,
+                "detalhe": detalhe_acao,
+            })
+
+    if not eventos:
+        return False, "Nenhuma alteração foi detectada."
+
+    erros = validar_consistencia_encerramento(novo)
+    if erros:
+        return False, "\n".join(erros)
+
+    usuario = st.session_state.get("usuario_logado", "")
+    agora = datetime.datetime.now()
+    novo["Última Alteração Por"] = usuario
+    novo["Data da Alteração"] = agora.strftime("%d/%m/%Y %H:%M")
+
+    concluiu_agora = False
+    if processo_pronto_para_concluir(novo):
+        novo["Estado do processo"] = "Concluído"
+        novo["Data de conclusão"] = agora.strftime("%d/%m/%Y %H:%M")
+        concluiu_agora = True
+        eventos.append({
+            "tipo_acao": "Conclusão automática",
+            "campo": "Estado do processo",
+            "valor_anterior": original.get("Estado do processo", "Ativo"),
+            "valor_novo": "Concluído",
+            "detalhe": "Todas as etapas obrigatórias atingiram seus estados finais.",
+        })
+
+    for campo in df.columns:
+        df.at[idx, campo] = novo.get(campo, "")
+
+    try:
+        _salvar_df_encerramentos(df)
+    except Exception as exc:
+        return False, f"Erro ao salvar no Google Sheets: {exc}"
+
+    registrar_historico_encerramento(novo, eventos)
+    registrar_log("Atualizou encerramento", f"{novo.get('ID Processo')} — {novo.get('Loja')}")
+
+    if concluiu_agora:
+        return True, (
+            f"Alterações salvas. O processo {novo.get('ID Processo')} foi concluído automaticamente "
+            "porque todas as etapas obrigatórias foram finalizadas."
+        )
+    return True, "Alterações salvas com sucesso."
+
+
+def criar_novo_encerramento(loja, apelidos, data_fechamento, notificacao, data_notificacao, observacoes):
+    loja = _texto_limpo(loja)
+    if not loja:
+        return False, "Informe a loja.", None
+    if data_fechamento is None:
+        return False, "Informe a data do fechamento.", None
+    if notificacao == "Enviada" and data_notificacao is None:
+        return False, "Informe a data do envio da notificação.", None
+
+    try:
+        id_processo = gerar_id_processo("ENC")
+    except Exception as exc:
+        return False, str(exc), None
+
+    uuid_processo = str(uuid.uuid4())
+    agora = datetime.datetime.now()
+    usuario = st.session_state.get("usuario_logado", "")
+
+    registro = {c: "" for c in COLUNAS_ENCERRAMENTOS}
+    registro.update({
+        "UUID Processo": uuid_processo,
+        "ID Processo": id_processo,
+        "Tipo Processo": "ENC",
+        "Loja": loja,
+        "Apelidos da Loja": _juntar_apelidos(apelidos),
+        "Data de Criação": agora.strftime("%d/%m/%Y %H:%M"),
+        "Notificação": notificacao,
+        "Data do envio da notificação": _formatar_data(data_notificacao),
+        "Data do fechamento": _formatar_data(data_fechamento),
+        "Contagem mercadoria": "Pendente",
+        "Retirada mercadoria": "Pendente",
+        "Desmobilização": "Pendente",
+        "Retirada da fachada / comunicação visual": "Pendente",
+        "Contas de consumo": "Pendente",
+        "Vistoria de devolução": "Pendente",
+        "Entrega das chaves": "Pendente",
+        "Adequações": "Pendente",
+        "Distrato contas a pagar": "Pendente",
+        "Distrato jurídico": "Pendente",
+        "Distrato aprovação": "Pendente",
+        "Distrato": "Pendente",
+        "Contas pagamento": "Pendente",
+        "Para legal baixa no CNPJ": "Pendente",
+        "Próximo passo / observações": _texto_limpo(observacoes),
+        "Estado do processo": "Ativo",
+        "Cadastrado Por": usuario,
+        "Última Alteração Por": "",
+        "Data da Alteração": "",
+    })
+
+    erros = validar_consistencia_encerramento(registro)
+    if erros:
+        return False, "\n".join(erros), None
+
+    df = _obter_df_encerramentos()
+    df = pd.concat([df, pd.DataFrame([registro])], ignore_index=True)
+    try:
+        _salvar_df_encerramentos(df)
+    except Exception as exc:
+        return False, (
+            "Não foi possível salvar na aba 'Encerramentos'. "
+            f"Confirme se ela existe com as colunas corretas. Detalhes: {exc}"
+        ), None
+
+    registrar_historico_encerramento(registro, [{
+        "tipo_acao": "Criação",
+        "campo": "Estado do processo",
+        "valor_anterior": "",
+        "valor_novo": "Ativo",
+        "detalhe": "Processo de encerramento criado.",
+    }])
+    registrar_log("Criou encerramento", f"{id_processo} — {loja}")
+    return True, f"Encerramento {id_processo} criado com sucesso.", registro
+
+
+def arquivar_encerramento(uuid_processo, motivo):
+    motivo = _texto_limpo(motivo)
+    if not motivo:
+        return False, "O motivo do arquivamento é obrigatório."
+
+    df = _obter_df_encerramentos()
+    idx, processo = _obter_processo_por_uuid(uuid_processo, df)
+    if idx is None:
+        return False, "Processo não encontrado."
+    if _texto_limpo(processo.get("Estado do processo")) != "Ativo":
+        return False, "Somente processos ativos podem ser arquivados."
+
+    usuario = st.session_state.get("usuario_logado", "")
+    agora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+    anterior = processo.copy()
+
+    df.at[idx, "Estado do processo"] = "Arquivado"
+    df.at[idx, "Data de arquivamento"] = agora
+    df.at[idx, "Arquivado por"] = usuario
+    df.at[idx, "Motivo do arquivamento"] = motivo
+    df.at[idx, "Última Alteração Por"] = usuario
+    df.at[idx, "Data da Alteração"] = agora
+
+    try:
+        _salvar_df_encerramentos(df)
+    except Exception as exc:
+        return False, f"Erro ao arquivar: {exc}"
+
+    processo_novo = df.loc[idx].copy()
+    registrar_historico_encerramento(processo_novo, [{
+        "tipo_acao": "Arquivamento",
+        "campo": "Estado do processo",
+        "valor_anterior": anterior.get("Estado do processo", "Ativo"),
+        "valor_novo": "Arquivado",
+        "detalhe": motivo,
+    }])
+    registrar_log("Arquivou encerramento", f"{processo_novo.get('ID Processo')} — {motivo}")
+    return True, "Processo arquivado com sucesso."
+
+
+def restaurar_ou_reabrir_encerramento(uuid_processo):
+    if st.session_state.get("nivel_acesso") not in ["Admin", "Con"]:
+        return False, "Somente Admin/Con podem restaurar ou reabrir processos."
+
+    df = _obter_df_encerramentos()
+    idx, processo = _obter_processo_por_uuid(uuid_processo, df)
+    if idx is None:
+        return False, "Processo não encontrado."
+
+    estado_anterior = _texto_limpo(processo.get("Estado do processo"))
+    if estado_anterior not in ["Concluído", "Arquivado"]:
+        return False, "Este processo já está ativo."
+
+    usuario = st.session_state.get("usuario_logado", "")
+    agora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+    df.at[idx, "Estado do processo"] = "Ativo"
+    df.at[idx, "Última Alteração Por"] = usuario
+    df.at[idx, "Data da Alteração"] = agora
+
+    if estado_anterior == "Concluído":
+        df.at[idx, "Data de conclusão"] = ""
+        tipo = "Reabertura"
+    else:
+        df.at[idx, "Data de arquivamento"] = ""
+        df.at[idx, "Arquivado por"] = ""
+        df.at[idx, "Motivo do arquivamento"] = ""
+        tipo = "Restauração"
+
+    try:
+        _salvar_df_encerramentos(df)
+    except Exception as exc:
+        return False, f"Erro ao restaurar/reabrir: {exc}"
+
+    processo_novo = df.loc[idx].copy()
+    registrar_historico_encerramento(processo_novo, [{
+        "tipo_acao": tipo,
+        "campo": "Estado do processo",
+        "valor_anterior": estado_anterior,
+        "valor_novo": "Ativo",
+        "detalhe": f"{tipo} manual por Admin/Con.",
+    }])
+    registrar_log(tipo + " de encerramento", f"{processo_novo.get('ID Processo')}")
+    return True, "Processo devolvido ao acompanhamento ativo."
+
+
+def render_historico_processo(uuid_processo):
+    try:
+        df_hist = ler_aba_padronizada("Histórico Encerramentos", COLUNAS_HISTORICO_ENC)
+    except Exception:
+        df_hist = pd.DataFrame({c: pd.Series(dtype="object") for c in COLUNAS_HISTORICO_ENC})
+
+    if df_hist.empty:
+        st.info("Ainda não há histórico registrado para este processo.")
+        return
+
+    filtro = df_hist[
+        df_hist["UUID Processo"].astype(str).str.strip() == str(uuid_processo).strip()
+    ].copy()
+    if filtro.empty:
+        st.info("Ainda não há histórico registrado para este processo.")
+        return
+
+    filtro = filtro.iloc[::-1].reset_index(drop=True)
+    colunas_visiveis = [
+        "Data/Hora", "Usuário", "Nível", "Tipo de ação", "Campo alterado",
+        "Valor anterior", "Valor novo", "Detalhe",
+    ]
+    st.dataframe(filtro[colunas_visiveis], use_container_width=True, hide_index=True)
+
+
+def _drive_config():
+    try:
+        cfg = st.secrets["google_drive"]
+        return {
+            "client_id": str(cfg["client_id"]),
+            "client_secret": str(cfg["client_secret"]),
+            "refresh_token": str(cfg["refresh_token"]),
+            "token_uri": str(cfg.get("token_uri", "https://oauth2.googleapis.com/token")),
+            "root_folder_id": str(cfg.get("root_folder_id", "")).strip(),
+        }
+    except Exception:
+        return None
+
+
+def drive_disponivel():
+    cfg = _drive_config()
+    return DRIVE_LIBS_AVAILABLE and bool(cfg and cfg.get("client_id") and cfg.get("client_secret") and cfg.get("refresh_token"))
+
+
+@st.cache_resource(show_spinner=False)
+def obter_drive_service():
+    if not DRIVE_LIBS_AVAILABLE:
+        raise RuntimeError(
+            "Dependências do Google Drive não instaladas. Instale: "
+            "google-api-python-client google-auth-httplib2 google-auth-oauthlib"
+        )
+    cfg = _drive_config()
+    if not cfg:
+        raise RuntimeError("Configuração [google_drive] ausente no st.secrets.")
+
+    creds = Credentials(
+        token=None,
+        refresh_token=cfg["refresh_token"],
+        token_uri=cfg["token_uri"],
+        client_id=cfg["client_id"],
+        client_secret=cfg["client_secret"],
+        scopes=DRIVE_SCOPES,
+    )
+    creds.refresh(Request())
+    return build("drive", "v3", credentials=creds, cache_discovery=False)
+
+
+def _escape_drive_query(valor):
+    return str(valor).replace("\\", "\\\\").replace("'", "\\'")
+
+
+def obter_ou_criar_pasta_raiz_drive(service):
+    cfg = _drive_config() or {}
+    root_id = cfg.get("root_folder_id", "")
+    if root_id:
+        return root_id
+
+    nome = "Encerramentos - Sistema"
+    q = (
+        "mimeType='application/vnd.google-apps.folder' and trashed=false and "
+        f"name='{_escape_drive_query(nome)}'"
+    )
+    resp = service.files().list(q=q, spaces="drive", fields="files(id,name)", pageSize=10).execute()
+    arquivos = resp.get("files", [])
+    if arquivos:
+        return arquivos[0]["id"]
+
+    pasta = service.files().create(
+        body={"name": nome, "mimeType": "application/vnd.google-apps.folder"},
+        fields="id",
+    ).execute()
+    return pasta["id"]
+
+
+def obter_ou_criar_pasta_processo(service, processo):
+    root_id = obter_ou_criar_pasta_raiz_drive(service)
+    uuid_proc = _texto_limpo(processo.get("UUID Processo"))
+    q = (
+        "mimeType='application/vnd.google-apps.folder' and trashed=false and "
+        f"'{_escape_drive_query(root_id)}' in parents and "
+        f"appProperties has {{ key='uuid_processo' and value='{_escape_drive_query(uuid_proc)}' }}"
+    )
+    resp = service.files().list(q=q, spaces="drive", fields="files(id,name)", pageSize=10).execute()
+    arquivos = resp.get("files", [])
+    if arquivos:
+        return arquivos[0]["id"]
+
+    nome = f"{_texto_limpo(processo.get('ID Processo'))} - {_texto_limpo(processo.get('Loja'))}"
+    pasta = service.files().create(
+        body={
+            "name": nome[:180],
+            "mimeType": "application/vnd.google-apps.folder",
+            "parents": [root_id],
+            "appProperties": {"uuid_processo": uuid_proc},
+        },
+        fields="id",
+    ).execute()
+    return pasta["id"]
+
+
+def validar_nome_pdf_para_loja(nome_arquivo, processo):
+    nome_norm = _normalizar_texto(PathLikeName.remove_pdf_extension(nome_arquivo))
+    candidatos = [_texto_limpo(processo.get("Loja", ""))] + _separar_apelidos(processo.get("Apelidos da Loja", ""))
+    candidatos_norm = [_normalizar_texto(c) for c in candidatos if _normalizar_texto(c)]
+    return any(c in nome_norm for c in candidatos_norm)
+
+
+class PathLikeName:
+    @staticmethod
+    def remove_pdf_extension(nome):
+        nome = str(nome)
+        return re.sub(r"(?i)\.pdf$", "", nome).strip()
+
+
+def validar_pdf_upload(uploaded_file, processo, hashes_existentes):
+    nome = uploaded_file.name or "arquivo.pdf"
+    mime = (uploaded_file.type or "").lower().strip()
+    dados = uploaded_file.getvalue()
+
+    if not nome.lower().endswith(".pdf"):
+        return False, "A extensão do arquivo precisa ser .pdf.", None, None
+    if mime and mime not in {"application/pdf", "application/x-pdf"}:
+        return False, f"Tipo MIME não reconhecido como PDF ({mime}).", None, None
+    if len(dados) > MAX_PDF_MB * 1024 * 1024:
+        return False, f"O arquivo ultrapassa o limite de {MAX_PDF_MB} MB.", None, None
+    if b"%PDF-" not in dados[:1024]:
+        return False, "O conteúdo do arquivo não possui uma assinatura PDF válida (%PDF-).", None, None
+    if not validar_nome_pdf_para_loja(nome, processo):
+        return False, "O nome do PDF precisa conter o nome da loja ou um apelido autorizado.", None, None
+
+    hash_pdf = hashlib.sha256(dados).hexdigest()
+    if hash_pdf in hashes_existentes:
+        return False, "Este mesmo arquivo já foi enviado para este encerramento.", None, hash_pdf
+    return True, "Arquivo válido.", dados, hash_pdf
+
+
+def enviar_pdf_drive(service, processo, nome, dados):
+    pasta_id = obter_ou_criar_pasta_processo(service, processo)
+    media = MediaIoBaseUpload(io.BytesIO(dados), mimetype="application/pdf", resumable=False)
+    metadata = {
+        "name": nome,
+        "parents": [pasta_id],
+        "mimeType": "application/pdf",
+        "appProperties": {
+            "uuid_processo": _texto_limpo(processo.get("UUID Processo")),
+            "id_processo": _texto_limpo(processo.get("ID Processo")),
+        },
+    }
+    arquivo = service.files().create(
+        body=metadata,
+        media_body=media,
+        fields="id,name,mimeType,size",
+    ).execute()
+    return arquivo
+
+
+def baixar_pdf_drive(service, file_id):
+    request = service.files().get_media(fileId=file_id)
+    return request.execute()
+
+
+def excluir_pdf_drive(service, file_id):
+    service.files().delete(fileId=file_id).execute()
+
+
+def _obter_documentos_encerramento():
+    return ler_aba_padronizada("Documentos Encerramentos", COLUNAS_DOCUMENTOS_ENC)
+
+
+def _documentos_ativos_processo(uuid_processo):
+    df = _obter_documentos_encerramento()
+    if df.empty:
+        return df
+    mask = (
+        (df["UUID Processo"].astype(str).str.strip() == str(uuid_processo).strip())
+        & (df["Estado Documento"].astype(str).str.strip().str.lower() != "excluído")
+    )
+    return df[mask].copy().reset_index(drop=True)
+
+
+def salvar_lote_documentos(processo, categoria, descricao, arquivos):
+    if not _opcao_documento_permitida("enviar"):
+        return [], [{"nome": "—", "erro": "Seu perfil não possui permissão para enviar documentos."}]
+    if _texto_limpo(processo.get("Estado do processo")) == "Arquivado":
+        return [], [{"nome": "—", "erro": "Processos arquivados não aceitam novos documentos."}]
+    if not drive_disponivel():
+        return [], [{"nome": "—", "erro": "Google Drive ainda não está configurado no st.secrets."}]
+
+    df_docs = _obter_documentos_encerramento()
+    ativos = _documentos_ativos_processo(processo.get("UUID Processo"))
+    hashes = set(ativos["SHA-256"].astype(str).str.strip().tolist()) if not ativos.empty else set()
+
+    try:
+        service = obter_drive_service()
+    except Exception as exc:
+        return [], [{"nome": "—", "erro": f"Falha ao conectar ao Google Drive: {exc}"}]
+
+    aprovados = []
+    rejeitados = []
+    drive_ids_criados = []
+    agora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    usuario = st.session_state.get("usuario_logado", "")
+
+    for arq in arquivos:
+        valido, msg, dados, hash_pdf = validar_pdf_upload(arq, processo, hashes)
+        if not valido:
+            rejeitados.append({"nome": arq.name, "erro": msg})
+            continue
+
+        try:
+            remoto = enviar_pdf_drive(service, processo, arq.name, dados)
+            drive_ids_criados.append(remoto["id"])
+            uuid_doc = str(uuid.uuid4())
+            registro = {
+                "UUID Documento": uuid_doc,
+                "ID Documento": f"DOC-{datetime.date.today().year}-{uuid_doc.split('-')[0].upper()}",
+                "UUID Processo": _texto_limpo(processo.get("UUID Processo")),
+                "ID Processo": _texto_limpo(processo.get("ID Processo")),
+                "Loja": _texto_limpo(processo.get("Loja")),
+                "Categoria": categoria,
+                "Descrição": _texto_limpo(descricao),
+                "Nome original": arq.name,
+                "Drive File ID": remoto["id"],
+                "SHA-256": hash_pdf,
+                "Data do envio": agora,
+                "Enviado Por": usuario,
+                "Tamanho (bytes)": str(len(dados)),
+                "Tipo MIME": "application/pdf",
+                "Estado Documento": "Ativo",
+                "Excluído por": "",
+                "Data da exclusão": "",
+            }
+            aprovados.append(registro)
+            hashes.add(hash_pdf)
+        except Exception as exc:
+            rejeitados.append({"nome": arq.name, "erro": f"Falha no upload para o Drive: {exc}"})
+
+    if aprovados:
+        try:
+            df_docs = pd.concat([df_docs, pd.DataFrame(aprovados)], ignore_index=True)
+            df_docs = df_docs[COLUNAS_DOCUMENTOS_ENC]
+            conn.update(
+                spreadsheet=url_planilha,
+                worksheet="Documentos Encerramentos",
+                data=_preparar_df_para_sheets(df_docs),
+            )
+        except Exception as exc:
+            # Rollback best-effort para não deixar arquivos órfãos no Drive.
+            for file_id in drive_ids_criados:
+                try:
+                    excluir_pdf_drive(service, file_id)
+                except Exception:
+                    pass
+            return [], rejeitados + [{
+                "nome": "—",
+                "erro": (
+                    "Os arquivos foram revertidos do Drive porque não foi possível salvar os metadados na aba "
+                    f"'Documentos Encerramentos': {exc}"
+                ),
+            }]
+
+        eventos = []
+        for doc in aprovados:
+            eventos.append({
+                "tipo_acao": "Documento enviado",
+                "campo": "Documentos",
+                "valor_anterior": "",
+                "valor_novo": doc["Nome original"],
+                "detalhe": f"Categoria: {doc['Categoria']} | ID Documento: {doc['ID Documento']}",
+            })
+        registrar_historico_encerramento(processo, eventos)
+        registrar_log(
+            "Enviou documento(s) de encerramento",
+            f"{processo.get('ID Processo')} — {len(aprovados)} arquivo(s)",
+        )
+
+    return aprovados, rejeitados
+
+
+def excluir_documento_encerramento(uuid_documento):
+    if not _opcao_documento_permitida("excluir"):
+        return False, "Seu perfil não possui permissão para excluir documentos."
+    if not drive_disponivel():
+        return False, "Google Drive não está configurado."
+
+    df_docs = _obter_documentos_encerramento()
+    if df_docs.empty:
+        return False, "Documento não encontrado."
+    mask = df_docs["UUID Documento"].astype(str).str.strip() == str(uuid_documento).strip()
+    indices = df_docs.index[mask].tolist()
+    if not indices:
+        return False, "Documento não encontrado."
+    idx = indices[0]
+    doc = df_docs.loc[idx].copy()
+    if _texto_limpo(doc.get("Estado Documento")).lower() == "excluído":
+        return False, "Este documento já foi excluído."
+
+    try:
+        service = obter_drive_service()
+        excluir_pdf_drive(service, _texto_limpo(doc.get("Drive File ID")))
+    except Exception as exc:
+        return False, f"Não foi possível excluir o arquivo do Google Drive: {exc}"
+
+    usuario = st.session_state.get("usuario_logado", "")
+    agora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    df_docs.at[idx, "Estado Documento"] = "Excluído"
+    df_docs.at[idx, "Excluído por"] = usuario
+    df_docs.at[idx, "Data da exclusão"] = agora
+
+    try:
+        conn.update(
+            spreadsheet=url_planilha,
+            worksheet="Documentos Encerramentos",
+            data=_preparar_df_para_sheets(df_docs[COLUNAS_DOCUMENTOS_ENC]),
+        )
+    except Exception as exc:
+        return False, (
+            "O arquivo foi removido do Drive, mas houve falha ao atualizar o registro no Sheets: "
+            f"{exc}"
+        )
+
+    df_enc = _obter_df_encerramentos()
+    _, processo = _obter_processo_por_uuid(doc.get("UUID Processo"), df_enc)
+    if processo is not None:
+        registrar_historico_encerramento(processo, [{
+            "tipo_acao": "Documento excluído",
+            "campo": "Documentos",
+            "valor_anterior": doc.get("Nome original", ""),
+            "valor_novo": "",
+            "detalhe": f"Categoria: {doc.get('Categoria', '')} | ID Documento: {doc.get('ID Documento', '')}",
+        }])
+    registrar_log("Excluiu documento de encerramento", f"{doc.get('ID Processo')} — {doc.get('Nome original')}")
+    return True, "Documento excluído com sucesso."
+
+
+def _render_pdf_bytes(pdf_bytes, key):
+    try:
+        st.pdf(pdf_bytes, height=720, key=key)
+        return
+    except Exception:
+        pass
+
+    # Fallback para instalações sem o extra streamlit[pdf].
+    b64 = base64.b64encode(pdf_bytes).decode("ascii")
+    html = (
+        '<iframe src="data:application/pdf;base64,' + b64 + '" '
+        'width="100%" height="720" style="border:1px solid #FFD80F;border-radius:8px;"></iframe>'
+    )
+    components.html(html, height=740, scrolling=True)
+
+
+def _formatar_tamanho_bytes(valor):
+    try:
+        tamanho = int(float(valor))
+    except Exception:
+        return "—"
+    for unidade in ["B", "KB", "MB", "GB"]:
+        if tamanho < 1024 or unidade == "GB":
+            return f"{tamanho:.0f} {unidade}" if unidade == "B" else f"{tamanho:.1f} {unidade}"
+        tamanho /= 1024
+    return "—"
+
+
+def render_documentos_processo(processo):
+    uuid_proc = _texto_limpo(processo.get("UUID Processo"))
+    docs = _documentos_ativos_processo(uuid_proc)
+
+    if _opcao_documento_permitida("enviar") and _texto_limpo(processo.get("Estado do processo")) != "Arquivado":
+        st.subheader("Adicionar documentos")
+        categoria = st.selectbox(
+            "Categoria",
+            CATEGORIAS_DOCUMENTOS_ENC,
+            key=f"doc_categoria_{uuid_proc}",
+        )
+        descricao = st.text_input(
+            "Descrição opcional",
+            key=f"doc_desc_{uuid_proc}",
+            placeholder="Ex.: versão assinada pela locadora",
+        )
+        arquivos = st.file_uploader(
+            "Selecionar PDFs",
+            type=["pdf"],
+            accept_multiple_files=True,
+            key=f"doc_upload_{uuid_proc}",
+            help=(
+                f"Cada arquivo deve ter no máximo {MAX_PDF_MB} MB e conter no nome a loja "
+                "ou um dos apelidos autorizados."
+            ),
+        )
+        if arquivos and st.button("Enviar documentos válidos", key=f"doc_enviar_{uuid_proc}"):
+            with st.spinner("Validando e enviando documentos..."):
+                aprovados, rejeitados = salvar_lote_documentos(processo, categoria, descricao, arquivos)
+            if aprovados:
+                st.success(f"{len(aprovados)} documento(s) enviado(s) com sucesso.")
+            for item in rejeitados:
+                st.error(f"{item['nome']}: {item['erro']}")
+            if aprovados:
+                st.rerun()
+
+    st.divider()
+    st.subheader("Documentos vinculados")
+    if docs.empty:
+        st.info("Nenhum documento foi anexado a este processo ainda.")
+        return
+
+    categorias = sorted(set(docs["Categoria"].astype(str).str.strip().tolist()))
+    filtro_cat = st.selectbox(
+        "Filtrar categoria",
+        ["Todas"] + [c for c in categorias if c],
+        key=f"doc_filtro_cat_{uuid_proc}",
+    )
+    if filtro_cat != "Todas":
+        docs = docs[docs["Categoria"].astype(str).str.strip() == filtro_cat].reset_index(drop=True)
+
+    for _, doc in docs.iloc[::-1].iterrows():
+        nome = _texto_limpo(doc.get("Nome original"))
+        categoria_doc = _texto_limpo(doc.get("Categoria"))
+        titulo = f"{categoria_doc} — {nome}" if categoria_doc else nome
+        with st.expander(titulo, expanded=False):
+            st.caption(
+                f"Enviado por {_texto_limpo(doc.get('Enviado Por')) or '—'} em "
+                f"{_texto_limpo(doc.get('Data do envio')) or '—'} • "
+                f"{_formatar_tamanho_bytes(doc.get('Tamanho (bytes)'))}"
+            )
+            if _texto_limpo(doc.get("Descrição")):
+                st.write(_texto_limpo(doc.get("Descrição")))
+
+            col_v, col_d, col_x = st.columns(3)
+            with col_v:
+                if st.button("Visualizar", key=f"view_doc_{doc['UUID Documento']}"):
+                    st.session_state["doc_visualizar_uuid"] = doc["UUID Documento"]
+            with col_d:
+                if _opcao_documento_permitida("baixar"):
+                    cache_key = f"doc_bytes_{doc['UUID Documento']}"
+                    if cache_key not in st.session_state:
+                        if st.button("Preparar download", key=f"prep_dl_{doc['UUID Documento']}"):
+                            try:
+                                service = obter_drive_service()
+                                st.session_state[cache_key] = baixar_pdf_drive(service, doc["Drive File ID"])
+                                st.rerun()
+                            except Exception as exc:
+                                st.error(f"Falha ao preparar download: {exc}")
+                    else:
+                        st.download_button(
+                            "Baixar PDF",
+                            data=st.session_state[cache_key],
+                            file_name=nome,
+                            mime="application/pdf",
+                            key=f"dl_doc_{doc['UUID Documento']}",
+                        )
+            with col_x:
+                if _opcao_documento_permitida("excluir"):
+                    if st.button("Excluir", key=f"del_doc_{doc['UUID Documento']}"):
+                        st.session_state["doc_confirmar_exclusao"] = doc["UUID Documento"]
+                        st.rerun()
+
+            if st.session_state.get("doc_confirmar_exclusao") == doc["UUID Documento"]:
+                st.error(f"Confirmar exclusão definitiva do Drive: **{nome}**?")
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("Confirmar exclusão", key=f"confirm_del_doc_{doc['UUID Documento']}"):
+                        ok, msg = excluir_documento_encerramento(doc["UUID Documento"])
+                        st.session_state.pop("doc_confirmar_exclusao", None)
+                        if ok:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                with c2:
+                    if st.button("Cancelar", key=f"cancel_del_doc_{doc['UUID Documento']}"):
+                        st.session_state.pop("doc_confirmar_exclusao", None)
+                        st.rerun()
+
+    visualizar_uuid = st.session_state.get("doc_visualizar_uuid")
+    if visualizar_uuid:
+        selecionado = docs[docs["UUID Documento"].astype(str) == str(visualizar_uuid)]
+        if selecionado.empty:
+            # pode estar fora do filtro atual: procura no conjunto completo
+            todos = _documentos_ativos_processo(uuid_proc)
+            selecionado = todos[todos["UUID Documento"].astype(str) == str(visualizar_uuid)]
+        if not selecionado.empty:
+            doc = selecionado.iloc[0]
+            st.divider()
+            st.subheader(f"Visualização — {doc['Nome original']}")
+            try:
+                service = obter_drive_service()
+                pdf_bytes = baixar_pdf_drive(service, doc["Drive File ID"])
+                _render_pdf_bytes(pdf_bytes, key=f"pdf_{visualizar_uuid}")
+                if st.button("Fechar visualização", key=f"close_pdf_{visualizar_uuid}"):
+                    st.session_state.pop("doc_visualizar_uuid", None)
+                    st.rerun()
+            except Exception as exc:
+                st.error(f"Não foi possível carregar o PDF: {exc}")
+
+
+def _opcoes_processos(df):
+    opcoes = []
+    mapa = {}
+    for _, row in df.iterrows():
+        rotulo = f"{_texto_limpo(row.get('ID Processo'))} — {_texto_limpo(row.get('Loja'))}"
+        # Evita colisão visual se houver dados legados duplicados.
+        rotulo_unico = rotulo
+        n = 2
+        while rotulo_unico in mapa:
+            rotulo_unico = f"{rotulo} ({n})"
+            n += 1
+        mapa[rotulo_unico] = _texto_limpo(row.get("UUID Processo"))
+        opcoes.append(rotulo_unico)
+    return opcoes, mapa
+
+
+def _filtrar_processos_busca(df, busca):
+    busca = _normalizar_texto(busca)
+    if not busca:
+        return df
+    def corresponde(row):
+        alvo = " ".join([
+            _normalizar_texto(row.get("ID Processo", "")),
+            _normalizar_texto(row.get("Loja", "")),
+            _normalizar_texto(row.get("Apelidos da Loja", "")),
+        ])
+        return busca in alvo
+    mask = df.apply(corresponde, axis=1)
+    return df[mask].copy()
+
+
+def _render_cabecalho_processo(processo):
+    progresso = calcular_progresso_encerramento(processo)
+    st.subheader(f"{processo.get('ID Processo')} — {processo.get('Loja')}")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Estado", _texto_limpo(processo.get("Estado do processo")) or "Ativo")
+    c2.metric("Fechamento", _texto_limpo(processo.get("Data do fechamento")) or "—")
+    c3.metric("Progresso", f"{progresso['percentual']:.0f}%")
+    c4.metric("Etapas finalizadas", f"{progresso['finalizadas']}/{progresso['total']}")
+
+
+def _erro_lista(erros):
+    for erro in erros:
+        st.error(erro)
+
+
 @st.cache_resource
 def obter_armazenamento_sessoes():
     return {}
@@ -666,6 +2004,7 @@ opcoes_menu = [
     "Controle de Acessos",
     "Senhas Concessionárias",
     "Espaços Disponíveis",
+    "Andamento de Encerramentos",
 ]
 if nivel in ["Admin", "Con"]:
     opcoes_menu.append("👥 Gerenciar Usuários")
@@ -1471,6 +2810,614 @@ elif aba_selecionada == "Espaços Disponíveis":
         st.info("Nenhum espaço cadastrado ainda.")
     else:
         st.dataframe(df_esp_view, use_container_width=True)
+
+
+elif aba_selecionada == "Andamento de Encerramentos":
+    st.title("Andamento de Encerramentos")
+
+    submenu_enc = st.radio(
+        "Seção",
+        ["Visão Geral", "Novo Encerramento", "Acompanhamento", "Concluídos / Arquivados", "Documentos"],
+        horizontal=True,
+        key="enc_submenu",
+        label_visibility="collapsed",
+    )
+
+    df_enc = _obter_df_encerramentos()
+
+    if submenu_enc == "Visão Geral":
+        st.subheader("Visão Geral")
+        if df_enc.empty:
+            st.info("Nenhum encerramento foi cadastrado ainda.")
+        else:
+            estados = df_enc["Estado do processo"].astype(str).str.strip()
+            df_ativos = df_enc[estados.eq("Ativo")].copy()
+            qtd_concluidos = int(estados.eq("Concluído").sum())
+            qtd_arquivados = int(estados.eq("Arquivado").sum())
+
+            total_pendentes = 0
+            total_andamento = 0
+            total_finalizadas = 0
+            total_aplicaveis = 0
+            linhas_progresso = []
+
+            for _, row in df_ativos.iterrows():
+                p = calcular_progresso_encerramento(row)
+                total_pendentes += p["pendentes"]
+                total_andamento += p["andamento"]
+                total_finalizadas += p["finalizadas"]
+                total_aplicaveis += p["total"]
+                linhas_progresso.append({
+                    "ID": row.get("ID Processo", ""),
+                    "Loja": row.get("Loja", ""),
+                    "Progresso": round(p["percentual"], 1),
+                    "Pendentes": p["pendentes"],
+                    "Em andamento": p["andamento"],
+                    "Finalizadas": p["finalizadas"],
+                })
+
+            progresso_geral = (total_finalizadas / total_aplicaveis * 100) if total_aplicaveis else 0.0
+
+            c1, c2, c3, c4, c5 = st.columns(5)
+            c1.metric("Encerramentos ativos", len(df_ativos))
+            c2.metric("Etapas pendentes", total_pendentes)
+            c3.metric("Em andamento", total_andamento)
+            c4.metric("Finalizadas", total_finalizadas)
+            c5.metric("Progresso geral", f"{progresso_geral:.0f}%")
+
+            c6, c7 = st.columns(2)
+            c6.metric("Processos concluídos", qtd_concluidos)
+            c7.metric("Processos arquivados", qtd_arquivados)
+
+            st.divider()
+            st.subheader("Situação geral das etapas ativas")
+            resumo = pd.DataFrame({
+                "Situação": ["Pendente", "Em andamento", "Finalizado"],
+                "Quantidade": [total_pendentes, total_andamento, total_finalizadas],
+            })
+            resumo = resumo[resumo["Quantidade"] > 0]
+
+            if resumo.empty:
+                st.info("Não há etapas ativas para representar no gráfico.")
+            elif alt is not None:
+                chart = (
+                    alt.Chart(resumo)
+                    .mark_arc(innerRadius=65, outerRadius=120)
+                    .encode(
+                        theta=alt.Theta(field="Quantidade", type="quantitative"),
+                        color=alt.Color(
+                            field="Situação",
+                            type="nominal",
+                            scale=alt.Scale(
+                                domain=["Pendente", "Em andamento", "Finalizado"],
+                                range=["#FFD80F", "#FF9F1C", "#2ECC71"],
+                            ),
+                            legend=alt.Legend(title="Situação"),
+                        ),
+                        tooltip=["Situação", "Quantidade"],
+                    )
+                    .properties(height=330)
+                )
+                st.altair_chart(chart, use_container_width=True)
+            else:
+                st.dataframe(resumo, use_container_width=True, hide_index=True)
+
+            st.subheader("Progresso por loja")
+            if linhas_progresso:
+                df_prog = pd.DataFrame(linhas_progresso).sort_values(
+                    by=["Progresso", "Loja"], ascending=[True, True]
+                )
+                st.dataframe(
+                    df_prog,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Progresso": st.column_config.ProgressColumn(
+                            "Progresso",
+                            min_value=0,
+                            max_value=100,
+                            format="%.1f%%",
+                        )
+                    },
+                )
+            else:
+                st.info("Não há processos ativos no momento.")
+
+    elif submenu_enc == "Novo Encerramento":
+        st.subheader("Novo Encerramento")
+        if nivel not in ["Editor", "Admin", "Con"]:
+            st.warning("Seu perfil possui permissão apenas para consulta.")
+        else:
+            st.caption(
+                "O ID ENC é gerado automaticamente com o ano vigente e sequência contínua. "
+                "O UUID técnico fica armazenado apenas no banco."
+            )
+            with st.form("form_novo_encerramento", clear_on_submit=True):
+                c1, c2 = st.columns(2)
+                with c1:
+                    novo_loja = st.text_input("Loja *")
+                    novo_apelidos = st.text_input(
+                        "Apelidos autorizados da loja",
+                        help="Opcional. Separe por ponto e vírgula. Esses nomes também poderão validar PDFs.",
+                        placeholder="Ex.: Interlagos; Mega Interlagos",
+                    )
+                    novo_data_fechamento = st.date_input(
+                        "Data do fechamento *",
+                        value=None,
+                        format="DD/MM/YYYY",
+                    )
+                with c2:
+                    novo_notificacao = st.selectbox(
+                        "Notificação",
+                        STATUS_ETAPAS_ENC["Notificação"]["opcoes"],
+                    )
+                    novo_data_notificacao = st.date_input(
+                        "Data do envio da notificação",
+                        value=None,
+                        format="DD/MM/YYYY",
+                        help="Obrigatória se a notificação já estiver como Enviada.",
+                    )
+                    novo_obs = st.text_area("Próximo passo / observações", height=120)
+
+                criar_enc = st.form_submit_button("Criar encerramento")
+
+            if criar_enc:
+                ok, msg, registro = criar_novo_encerramento(
+                    novo_loja,
+                    novo_apelidos,
+                    novo_data_fechamento,
+                    novo_notificacao,
+                    novo_data_notificacao,
+                    novo_obs,
+                )
+                if ok:
+                    st.success(msg)
+                    if registro is not None:
+                        st.info(f"ID criado: **{registro['ID Processo']}**")
+                    st.rerun()
+                else:
+                    st.error(msg)
+
+    elif submenu_enc == "Acompanhamento":
+        st.subheader("Acompanhamento")
+        if df_enc.empty:
+            st.info("Nenhum encerramento cadastrado.")
+        else:
+            df_ativos = df_enc[
+                df_enc["Estado do processo"].astype(str).str.strip().eq("Ativo")
+            ].copy()
+            if df_ativos.empty:
+                st.info("Não há encerramentos ativos. Consulte 'Concluídos / Arquivados'.")
+            else:
+                busca = st.text_input(
+                    "Buscar por ID, loja ou apelido",
+                    key="enc_busca_acomp",
+                    placeholder="Ex.: ENC-2026-000098 ou Interlagos",
+                )
+                df_filtrado = _filtrar_processos_busca(df_ativos, busca)
+                if df_filtrado.empty:
+                    st.warning("Nenhum processo ativo corresponde à busca.")
+                else:
+                    opcoes, mapa = _opcoes_processos(df_filtrado)
+                    escolha = st.selectbox("Selecione o encerramento", opcoes, key="enc_escolha_acomp")
+                    uuid_escolhido = mapa[escolha]
+                    _, processo = _obter_processo_por_uuid(uuid_escolhido, df_enc)
+                    _render_cabecalho_processo(processo)
+
+                    parte = st.radio(
+                        "Parte do acompanhamento",
+                        [
+                            "Identificação e Notificação",
+                            "Operação da Loja",
+                            "Encerramento Operacional",
+                            "Distratos / Financeiro / Jurídico",
+                        ],
+                        horizontal=True,
+                        key=f"enc_parte_{uuid_escolhido}",
+                    )
+
+                    somente_leitura = nivel not in ["Editor", "Admin", "Con"]
+                    alteracoes = {}
+
+                    with st.form(f"form_acomp_{uuid_escolhido}_{parte}"):
+                        if parte == "Identificação e Notificação":
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                alteracoes["Loja"] = st.text_input(
+                                    "Loja",
+                                    value=_texto_limpo(processo.get("Loja")),
+                                    disabled=somente_leitura,
+                                )
+                                alteracoes["Apelidos da Loja"] = st.text_input(
+                                    "Apelidos autorizados",
+                                    value=_texto_limpo(processo.get("Apelidos da Loja")),
+                                    disabled=somente_leitura,
+                                    help="Separe por ponto e vírgula.",
+                                )
+                                alteracoes["Data do fechamento"] = _data_input_opcional(
+                                    "Data do fechamento",
+                                    processo.get("Data do fechamento"),
+                                    key=f"dfech_{uuid_escolhido}",
+                                    disabled=somente_leitura,
+                                )
+                            with c2:
+                                alteracoes["Notificação"] = st.selectbox(
+                                    "Notificação",
+                                    STATUS_ETAPAS_ENC["Notificação"]["opcoes"],
+                                    index=_indice_status("Notificação", processo.get("Notificação")),
+                                    disabled=somente_leitura,
+                                )
+                                alteracoes["Data do envio da notificação"] = _data_input_opcional(
+                                    "Data do envio da notificação",
+                                    processo.get("Data do envio da notificação"),
+                                    key=f"dnotif_{uuid_escolhido}",
+                                    disabled=somente_leitura,
+                                )
+
+                        elif parte == "Operação da Loja":
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                alteracoes["Contagem mercadoria"] = st.selectbox(
+                                    "Contagem mercadoria",
+                                    STATUS_ETAPAS_ENC["Contagem mercadoria"]["opcoes"],
+                                    index=_indice_status("Contagem mercadoria", processo.get("Contagem mercadoria")),
+                                    disabled=somente_leitura,
+                                )
+                                alteracoes["Data da contagem"] = _data_input_opcional(
+                                    "Data da contagem",
+                                    processo.get("Data da contagem"),
+                                    key=f"dcont_{uuid_escolhido}",
+                                    disabled=somente_leitura,
+                                )
+                                alteracoes["Retirada mercadoria"] = st.selectbox(
+                                    "Retirada mercadoria",
+                                    STATUS_ETAPAS_ENC["Retirada mercadoria"]["opcoes"],
+                                    index=_indice_status("Retirada mercadoria", processo.get("Retirada mercadoria")),
+                                    disabled=somente_leitura,
+                                )
+                                alteracoes["Data da retirada"] = _data_input_opcional(
+                                    "Data da retirada",
+                                    processo.get("Data da retirada"),
+                                    key=f"dret_{uuid_escolhido}",
+                                    disabled=somente_leitura,
+                                )
+                            with c2:
+                                alteracoes["Desmobilização"] = st.selectbox(
+                                    "Desmobilização",
+                                    STATUS_ETAPAS_ENC["Desmobilização"]["opcoes"],
+                                    index=_indice_status("Desmobilização", processo.get("Desmobilização")),
+                                    disabled=somente_leitura,
+                                )
+                                alteracoes["Data da desmobilização"] = _data_input_opcional(
+                                    "Data da desmobilização",
+                                    processo.get("Data da desmobilização"),
+                                    key=f"ddesmob_{uuid_escolhido}",
+                                    disabled=somente_leitura,
+                                )
+                                alteracoes["Retirada da fachada / comunicação visual"] = st.selectbox(
+                                    "Retirada da fachada / comunicação visual",
+                                    STATUS_ETAPAS_ENC["Retirada da fachada / comunicação visual"]["opcoes"],
+                                    index=_indice_status(
+                                        "Retirada da fachada / comunicação visual",
+                                        processo.get("Retirada da fachada / comunicação visual"),
+                                    ),
+                                    disabled=somente_leitura,
+                                )
+                                alteracoes["Data da retirada da com. visual"] = _data_input_opcional(
+                                    "Data da retirada da com. visual",
+                                    processo.get("Data da retirada da com. visual"),
+                                    key=f"dcomvis_{uuid_escolhido}",
+                                    disabled=somente_leitura,
+                                )
+
+                        elif parte == "Encerramento Operacional":
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                alteracoes["Contas de consumo"] = st.selectbox(
+                                    "Contas de consumo",
+                                    STATUS_ETAPAS_ENC["Contas de consumo"]["opcoes"],
+                                    index=_indice_status("Contas de consumo", processo.get("Contas de consumo")),
+                                    disabled=somente_leitura,
+                                )
+                                alteracoes["Data do envio das contas de consumo"] = _data_input_opcional(
+                                    "Data do envio das contas de consumo",
+                                    processo.get("Data do envio das contas de consumo"),
+                                    key=f"dcontcons_{uuid_escolhido}",
+                                    disabled=somente_leitura,
+                                )
+                                alteracoes["Vistoria de devolução"] = st.selectbox(
+                                    "Vistoria de devolução",
+                                    STATUS_ETAPAS_ENC["Vistoria de devolução"]["opcoes"],
+                                    index=_indice_status("Vistoria de devolução", processo.get("Vistoria de devolução")),
+                                    disabled=somente_leitura,
+                                )
+                                alteracoes["Data da vistoria de devolução"] = _data_input_opcional(
+                                    "Data da vistoria de devolução",
+                                    processo.get("Data da vistoria de devolução"),
+                                    key=f"dvist_{uuid_escolhido}",
+                                    disabled=somente_leitura,
+                                )
+                            with c2:
+                                alteracoes["Entrega das chaves"] = st.selectbox(
+                                    "Entrega das chaves",
+                                    STATUS_ETAPAS_ENC["Entrega das chaves"]["opcoes"],
+                                    index=_indice_status("Entrega das chaves", processo.get("Entrega das chaves")),
+                                    disabled=somente_leitura,
+                                )
+                                alteracoes["Data da entrega das chaves"] = _data_input_opcional(
+                                    "Data da entrega das chaves",
+                                    processo.get("Data da entrega das chaves"),
+                                    key=f"dchaves_{uuid_escolhido}",
+                                    disabled=somente_leitura,
+                                )
+                                alteracoes["Adequações"] = st.selectbox(
+                                    "Adequações",
+                                    STATUS_ETAPAS_ENC["Adequações"]["opcoes"],
+                                    index=_indice_status("Adequações", processo.get("Adequações")),
+                                    disabled=somente_leitura,
+                                )
+                            alteracoes["Orçamentos enviados?"] = st.text_area(
+                                "Orçamentos enviados?",
+                                value=_texto_limpo(processo.get("Orçamentos enviados?")),
+                                disabled=somente_leitura,
+                                height=100,
+                            )
+
+                        else:
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                alteracoes["Distrato contas a pagar"] = st.selectbox(
+                                    "Distrato contas a pagar",
+                                    STATUS_ETAPAS_ENC["Distrato contas a pagar"]["opcoes"],
+                                    index=_indice_status("Distrato contas a pagar", processo.get("Distrato contas a pagar")),
+                                    disabled=somente_leitura,
+                                )
+                                alteracoes["Data do envio para o contas a pagar"] = _data_input_opcional(
+                                    "Data do envio para o contas a pagar",
+                                    processo.get("Data do envio para o contas a pagar"),
+                                    key=f"dcp_{uuid_escolhido}",
+                                    disabled=somente_leitura,
+                                )
+                                alteracoes["Distrato jurídico"] = st.selectbox(
+                                    "Distrato jurídico",
+                                    STATUS_ETAPAS_ENC["Distrato jurídico"]["opcoes"],
+                                    index=_indice_status("Distrato jurídico", processo.get("Distrato jurídico")),
+                                    disabled=somente_leitura,
+                                )
+                                alteracoes["Data do envio para o jurídico"] = _data_input_opcional(
+                                    "Data do envio para o jurídico",
+                                    processo.get("Data do envio para o jurídico"),
+                                    key=f"djur_{uuid_escolhido}",
+                                    disabled=somente_leitura,
+                                )
+                                alteracoes["Distrato aprovação"] = st.selectbox(
+                                    "Distrato aprovação",
+                                    STATUS_ETAPAS_ENC["Distrato aprovação"]["opcoes"],
+                                    index=_indice_status("Distrato aprovação", processo.get("Distrato aprovação")),
+                                    disabled=somente_leitura,
+                                )
+                                alteracoes["Data do envio do distrato para aprovação"] = _data_input_opcional(
+                                    "Data do envio do distrato para aprovação",
+                                    processo.get("Data do envio do distrato para aprovação"),
+                                    key=f"daprov_{uuid_escolhido}",
+                                    disabled=somente_leitura,
+                                )
+                            with c2:
+                                alteracoes["Distrato"] = st.selectbox(
+                                    "Distrato",
+                                    STATUS_ETAPAS_ENC["Distrato"]["opcoes"],
+                                    index=_indice_status("Distrato", processo.get("Distrato")),
+                                    disabled=somente_leitura,
+                                )
+                                alteracoes["Contas pagamento"] = st.selectbox(
+                                    "Contas pagamento",
+                                    STATUS_ETAPAS_ENC["Contas pagamento"]["opcoes"],
+                                    index=_indice_status("Contas pagamento", processo.get("Contas pagamento")),
+                                    disabled=somente_leitura,
+                                )
+                                alteracoes["Data do envio da solicitação de pagamento para o contas a pagar"] = _data_input_opcional(
+                                    "Data do envio da solicitação de pagamento para o contas a pagar",
+                                    processo.get("Data do envio da solicitação de pagamento para o contas a pagar"),
+                                    key=f"dpag_{uuid_escolhido}",
+                                    disabled=somente_leitura,
+                                )
+                                alteracoes["Para legal baixa no CNPJ"] = st.selectbox(
+                                    "Para legal baixa no CNPJ",
+                                    STATUS_ETAPAS_ENC["Para legal baixa no CNPJ"]["opcoes"],
+                                    index=_indice_status("Para legal baixa no CNPJ", processo.get("Para legal baixa no CNPJ")),
+                                    disabled=somente_leitura,
+                                )
+                            alteracoes["Próximo passo / observações"] = st.text_area(
+                                "Próximo passo / observações",
+                                value=_texto_limpo(processo.get("Próximo passo / observações")),
+                                disabled=somente_leitura,
+                                height=150,
+                            )
+
+                        salvar = False
+                        if not somente_leitura:
+                            salvar = st.form_submit_button("Salvar alterações")
+
+                    if salvar:
+                        ok, msg = salvar_alteracoes_encerramento(uuid_escolhido, alteracoes)
+                        if ok:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            _erro_lista(msg.split("\n"))
+
+                    if somente_leitura:
+                        st.info("Seu perfil está em modo somente leitura.")
+
+                    if nivel in ["Editor", "Admin", "Con"]:
+                        st.divider()
+                        st.subheader("Arquivar antes da conclusão")
+                        st.caption(
+                            "Use somente quando o encerramento sair do fluxo antes da conclusão. "
+                            "O motivo é obrigatório e ficará registrado no histórico."
+                        )
+                        if st.button("Arquivar processo", key=f"btn_arq_{uuid_escolhido}"):
+                            st.session_state["enc_arquivar_uuid"] = uuid_escolhido
+                            st.rerun()
+
+                        if st.session_state.get("enc_arquivar_uuid") == uuid_escolhido:
+                            motivo_base = st.selectbox(
+                                "Motivo do arquivamento",
+                                [
+                                    "Loja permanecerá aberta",
+                                    "Projeto cancelado",
+                                    "Encerramento suspenso",
+                                    "Cadastro duplicado",
+                                    "Processo substituído",
+                                    "Outro",
+                                ],
+                                key=f"mot_arq_{uuid_escolhido}",
+                            )
+                            complemento = st.text_area(
+                                "Detalhes / justificativa",
+                                key=f"det_arq_{uuid_escolhido}",
+                                help="Obrigatório para 'Outro'; recomendado nos demais casos.",
+                            )
+                            motivo_final = motivo_base
+                            if complemento.strip():
+                                motivo_final = f"{motivo_base}: {complemento.strip()}"
+                            if motivo_base == "Outro" and not complemento.strip():
+                                st.warning("Informe a justificativa para o motivo 'Outro'.")
+                            ca, cb = st.columns(2)
+                            with ca:
+                                if st.button("Confirmar arquivamento", key=f"conf_arq_{uuid_escolhido}"):
+                                    if motivo_base == "Outro" and not complemento.strip():
+                                        st.error("A justificativa é obrigatória para 'Outro'.")
+                                    else:
+                                        ok, msg = arquivar_encerramento(uuid_escolhido, motivo_final)
+                                        st.session_state.pop("enc_arquivar_uuid", None)
+                                        if ok:
+                                            st.success(msg)
+                                            st.rerun()
+                                        else:
+                                            st.error(msg)
+                            with cb:
+                                if st.button("Cancelar arquivamento", key=f"cancel_arq_{uuid_escolhido}"):
+                                    st.session_state.pop("enc_arquivar_uuid", None)
+                                    st.rerun()
+
+                    st.divider()
+                    with st.expander("Histórico do processo", expanded=False):
+                        render_historico_processo(uuid_escolhido)
+
+    elif submenu_enc == "Concluídos / Arquivados":
+        st.subheader("Concluídos / Arquivados")
+        if df_enc.empty:
+            st.info("Nenhum encerramento cadastrado.")
+        else:
+            estados_validos = ["Concluído", "Arquivado"]
+            df_fechados = df_enc[
+                df_enc["Estado do processo"].astype(str).str.strip().isin(estados_validos)
+            ].copy()
+            if df_fechados.empty:
+                st.info("Nenhum processo concluído ou arquivado ainda.")
+            else:
+                c1, c2 = st.columns(2)
+                with c1:
+                    filtro_estado = st.selectbox(
+                        "Situação",
+                        ["Todos", "Concluído", "Arquivado"],
+                        key="enc_filtro_fechados_estado",
+                    )
+                with c2:
+                    busca = st.text_input(
+                        "Buscar por ID, loja ou apelido",
+                        key="enc_busca_fechados",
+                    )
+                consulta = df_fechados.copy()
+                if filtro_estado != "Todos":
+                    consulta = consulta[
+                        consulta["Estado do processo"].astype(str).str.strip() == filtro_estado
+                    ]
+                consulta = _filtrar_processos_busca(consulta, busca)
+
+                if consulta.empty:
+                    st.warning("Nenhum processo corresponde aos filtros.")
+                else:
+                    tabela = consulta[[
+                        "ID Processo", "Loja", "Data do fechamento", "Estado do processo",
+                        "Data de conclusão", "Data de arquivamento", "Arquivado por", "Motivo do arquivamento",
+                    ]].copy()
+                    st.dataframe(tabela, use_container_width=True, hide_index=True)
+
+                    opcoes, mapa = _opcoes_processos(consulta)
+                    escolha = st.selectbox(
+                        "Abrir detalhes",
+                        opcoes,
+                        key="enc_escolha_fechado",
+                    )
+                    uuid_escolhido = mapa[escolha]
+                    _, processo = _obter_processo_por_uuid(uuid_escolhido, df_enc)
+                    _render_cabecalho_processo(processo)
+                    if _texto_limpo(processo.get("Motivo do arquivamento")):
+                        st.warning(f"Motivo do arquivamento: {processo.get('Motivo do arquivamento')}")
+
+                    with st.expander("Histórico do processo", expanded=False):
+                        render_historico_processo(uuid_escolhido)
+
+                    if nivel in ["Admin", "Con"]:
+                        acao_nome = "Reabrir processo" if processo.get("Estado do processo") == "Concluído" else "Restaurar para acompanhamento"
+                        if st.button(acao_nome, key=f"reativar_{uuid_escolhido}"):
+                            st.session_state["enc_confirmar_reativar"] = uuid_escolhido
+                            st.rerun()
+                        if st.session_state.get("enc_confirmar_reativar") == uuid_escolhido:
+                            st.error(
+                                f"Confirmar: **{acao_nome}** para {processo.get('ID Processo')}? "
+                                "A ação será registrada no histórico."
+                            )
+                            cr1, cr2 = st.columns(2)
+                            with cr1:
+                                if st.button("Confirmar", key=f"conf_reativar_{uuid_escolhido}"):
+                                    ok, msg = restaurar_ou_reabrir_encerramento(uuid_escolhido)
+                                    st.session_state.pop("enc_confirmar_reativar", None)
+                                    if ok:
+                                        st.success(msg)
+                                        st.rerun()
+                                    else:
+                                        st.error(msg)
+                            with cr2:
+                                if st.button("Cancelar", key=f"cancel_reativar_{uuid_escolhido}"):
+                                    st.session_state.pop("enc_confirmar_reativar", None)
+                                    st.rerun()
+
+    elif submenu_enc == "Documentos":
+        st.subheader("Documentos")
+        if not _opcao_documento_permitida("visualizar"):
+            st.error("Seu perfil não possui permissão para visualizar documentos.")
+        elif df_enc.empty:
+            st.info("Cadastre um encerramento antes de anexar documentos.")
+        else:
+            if not drive_disponivel():
+                st.warning(
+                    "A área documental está pronta, mas o Google Drive ainda não foi configurado. "
+                    "Depois de adicionar as credenciais OAuth em [google_drive] no st.secrets, "
+                    "upload, visualização, download e exclusão serão habilitados."
+                )
+                if not DRIVE_LIBS_AVAILABLE:
+                    st.code(
+                        "pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib streamlit[pdf]"
+                    )
+
+            busca = st.text_input(
+                "Buscar processo por ID, loja ou apelido",
+                key="enc_busca_docs",
+            )
+            consulta = _filtrar_processos_busca(df_enc, busca)
+            if consulta.empty:
+                st.warning("Nenhum processo corresponde à busca.")
+            else:
+                opcoes, mapa = _opcoes_processos(consulta)
+                escolha = st.selectbox("Selecione o processo", opcoes, key="enc_escolha_docs")
+                uuid_escolhido = mapa[escolha]
+                _, processo = _obter_processo_por_uuid(uuid_escolhido, df_enc)
+                _render_cabecalho_processo(processo)
+                render_documentos_processo(processo)
+
 
 elif aba_selecionada == "👥 Gerenciar Usuários":
     st.title("Gerenciar Usuários")
