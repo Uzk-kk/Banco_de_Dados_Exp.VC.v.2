@@ -4370,12 +4370,3 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
 """
 
     components.html(SNAKE_HTML, height=620, scrolling=False)
-
-st.markdown(
-    """
-    <div class="footer-autoria">
-        Desenvolvido exclusivamente por Raphael Santos | © Todos os direitos reservados
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
