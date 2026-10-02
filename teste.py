@@ -50,39 +50,169 @@ st.set_page_config(page_title="Sistema de Cadastro e Gestão", layout="wide")
 st.markdown(
     """
     <style>
-    .stApp { 
-        background-color: #341539 !important; 
+    :root {
+        --vc-green-950: #12382D;
+        --vc-green-900: #173D32;
+        --vc-green-800: #1F5A45;
+        --vc-green-700: #2F765A;
+        --vc-green-600: #3F896B;
+        --vc-green-100: #E4EFEA;
+        --vc-green-050: #F0F6F3;
+        --vc-bg: #F4F6F5;
+        --vc-surface: #FFFFFF;
+        --vc-text: #202825;
+        --vc-text-muted: #66716C;
+        --vc-border: #D9E0DD;
+        --vc-border-strong: #C8D3CE;
+        --vc-warning: #C58A2B;
+        --vc-info: #3C6E71;
+        --vc-danger: #B54747;
     }
 
+    /* Base clara e confortável para uso prolongado no escritório */
+    html, body,
+    .stApp,
+    [data-testid="stAppViewContainer"],
+    [data-testid="stMain"] {
+        background-color: var(--vc-bg) !important;
+        color: var(--vc-text) !important;
+    }
+
+    [data-testid="stHeader"] {
+        background-color: rgba(244, 246, 245, 0.96) !important;
+        border-bottom: 1px solid rgba(18, 56, 45, 0.06) !important;
+    }
+
+    /* Sidebar institucional: verde escuro, sem saturação excessiva */
     [data-testid="stSidebar"] {
-        background-color: #262730 !important;
-        border-right: 1px solid rgba(255, 216, 15, 0.2) !important;
+        background-color: var(--vc-green-950) !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
     }
 
-    h1, h2, h3, label, [data-testid="stMarkdownContainer"] p { 
-        color: #FFD80F !important; 
-        font-weight: bold !important; 
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] small,
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
+        color: #F7FAF8 !important;
     }
 
-    div[data-baseweb="input"] > div { 
-        background-color: #262730 !important; 
-        border: 1px solid rgba(255, 216, 15, 0.3) !important;
-        border-radius: 8px !important; 
-    }
-    div[data-baseweb="input"] input { 
-        color: #FFFFFF !important; 
-        font-weight: normal !important;
+    [data-testid="stSidebar"] hr {
+        border-color: rgba(255, 255, 255, 0.12) !important;
     }
 
-    [data-testid="stForm"] { border: none !important; padding: 0 !important; }
+    /* Hierarquia tipográfica menos agressiva */
+    [data-testid="stMainBlockContainer"] h1 {
+        color: var(--vc-green-950) !important;
+        font-weight: 700 !important;
+        letter-spacing: -0.02em !important;
+    }
 
-    div.stButton > button, div[data-testid="stFormSubmitButton"] > button { 
-        background-color: #FFD80F !important; 
-        color: #7B2CBF !important; 
-        border-radius: 8px !important; 
-        border: none !important; 
-        padding: 10px 24px !important; 
-        font-weight: bold !important; 
+    [data-testid="stMainBlockContainer"] h2,
+    [data-testid="stMainBlockContainer"] h3 {
+        color: var(--vc-green-800) !important;
+        font-weight: 650 !important;
+    }
+
+    [data-testid="stMainBlockContainer"] p,
+    [data-testid="stMainBlockContainer"] li,
+    [data-testid="stMainBlockContainer"] span,
+    [data-testid="stMainBlockContainer"] small {
+        color: var(--vc-text) !important;
+    }
+
+    [data-testid="stMainBlockContainer"] label,
+    [data-testid="stWidgetLabel"] p {
+        color: var(--vc-text) !important;
+        font-weight: 600 !important;
+    }
+
+    [data-testid="stCaptionContainer"],
+    [data-testid="stCaptionContainer"] p {
+        color: var(--vc-text-muted) !important;
+    }
+
+    a {
+        color: var(--vc-green-700) !important;
+    }
+
+    hr {
+        border-color: var(--vc-border) !important;
+    }
+
+    /* Formulários viram superfícies brancas discretas */
+    [data-testid="stForm"] {
+        background-color: var(--vc-surface) !important;
+        border: 1px solid var(--vc-border) !important;
+        border-radius: 12px !important;
+        padding: 18px 20px 14px 20px !important;
+        box-shadow: 0 1px 2px rgba(18, 56, 45, 0.04) !important;
+    }
+
+    /* Inputs */
+    div[data-baseweb="input"] > div,
+    div[data-baseweb="textarea"] > div,
+    div[data-baseweb="select"] > div,
+    [data-testid="stDateInput"] div[data-baseweb="input"] > div {
+        background-color: var(--vc-surface) !important;
+        border-color: var(--vc-border-strong) !important;
+        border-radius: 8px !important;
+        box-shadow: none !important;
+    }
+
+    div[data-baseweb="input"] > div:focus-within,
+    div[data-baseweb="textarea"] > div:focus-within,
+    div[data-baseweb="select"] > div:focus-within {
+        border-color: var(--vc-green-700) !important;
+        box-shadow: 0 0 0 2px rgba(47, 118, 90, 0.12) !important;
+    }
+
+    div[data-baseweb="input"] input,
+    div[data-baseweb="textarea"] textarea,
+    div[data-baseweb="select"] input,
+    div[data-baseweb="select"] span {
+        color: var(--vc-text) !important;
+        font-weight: 400 !important;
+    }
+
+    div[data-baseweb="input"] input::placeholder,
+    div[data-baseweb="textarea"] textarea::placeholder {
+        color: #8A9691 !important;
+    }
+
+    /* Dropdowns e calendário */
+    [data-baseweb="popover"],
+    [data-baseweb="menu"],
+    [role="listbox"],
+    [data-baseweb="calendar"] {
+        background-color: var(--vc-surface) !important;
+        color: var(--vc-text) !important;
+    }
+
+    [role="option"] {
+        color: var(--vc-text) !important;
+    }
+
+    [role="option"]:hover,
+    [aria-selected="true"][role="option"] {
+        background-color: var(--vc-green-100) !important;
+    }
+
+    /* Botões principais */
+    div.stButton > button,
+    div[data-testid="stFormSubmitButton"] > button,
+    [data-testid="stDownloadButton"] > button {
+        background-color: var(--vc-green-700) !important;
+        color: #FFFFFF !important;
+        border-radius: 8px !important;
+        border: 1px solid var(--vc-green-700) !important;
+        padding: 9px 20px !important;
+        font-weight: 600 !important;
+        box-shadow: 0 1px 2px rgba(18, 56, 45, 0.10) !important;
+        transition: background-color 120ms ease, border-color 120ms ease, transform 120ms ease !important;
     }
 
     div.stButton > button p,
@@ -92,14 +222,20 @@ st.markdown(
     div[data-testid="stFormSubmitButton"] > button p,
     div[data-testid="stFormSubmitButton"] > button span,
     div[data-testid="stFormSubmitButton"] > button div,
-    div[data-testid="stFormSubmitButton"] > button label {
-        color: #7B2CBF !important;
-        font-weight: bold !important;
+    div[data-testid="stFormSubmitButton"] > button label,
+    [data-testid="stDownloadButton"] > button p,
+    [data-testid="stDownloadButton"] > button span {
+        color: #FFFFFF !important;
+        font-weight: 600 !important;
     }
 
-    div.stButton > button:hover, div[data-testid="stFormSubmitButton"] > button:hover { 
-        background-color: #7B2CBF !important; 
-        color: #FFD80F !important; 
+    div.stButton > button:hover,
+    div[data-testid="stFormSubmitButton"] > button:hover,
+    [data-testid="stDownloadButton"] > button:hover {
+        background-color: #245E48 !important;
+        border-color: #245E48 !important;
+        color: #FFFFFF !important;
+        transform: translateY(-1px) !important;
     }
 
     div.stButton > button:hover p,
@@ -109,11 +245,13 @@ st.markdown(
     div[data-testid="stFormSubmitButton"] > button:hover p,
     div[data-testid="stFormSubmitButton"] > button:hover span,
     div[data-testid="stFormSubmitButton"] > button:hover div,
-    div[data-testid="stFormSubmitButton"] > button:hover label {
-        color: #FFD80F !important;
-        font-weight: bold !important;
+    div[data-testid="stFormSubmitButton"] > button:hover label,
+    [data-testid="stDownloadButton"] > button:hover p,
+    [data-testid="stDownloadButton"] > button:hover span {
+        color: #FFFFFF !important;
     }
 
+    /* Botão secreto permanece invisível */
     div.element-container:has(#secret-btn-marker) + div.element-container button,
     div.element-container:has(#secret-btn-marker) + div.element-container button p,
     div.element-container:has(#secret-btn-marker) + div.element-container button span,
@@ -128,7 +266,9 @@ st.markdown(
         padding: 0 !important;
         margin-top: 20px !important;
         cursor: default !important;
+        transform: none !important;
     }
+
     div.element-container:has(#secret-btn-marker) + div.element-container button:hover,
     div.element-container:has(#secret-btn-marker) + div.element-container button:hover p,
     div.element-container:has(#secret-btn-marker) + div.element-container button:hover span,
@@ -137,61 +277,170 @@ st.markdown(
         background-color: transparent !important;
         color: transparent !important;
         border: none !important;
+        box-shadow: none !important;
+        transform: none !important;
     }
 
+    /* Rádio e checkbox */
     div[data-testid="stRadioButton"] label p {
-        color: #FFD80F !important;
+        color: var(--vc-text) !important;
+        font-weight: 500 !important;
+    }
+
+    [data-testid="stSidebar"] div[data-testid="stRadioButton"] label p {
+        color: #F7FAF8 !important;
     }
 
     div[data-testid="stRadioButton"] [aria-checked="true"] div:first-child,
     div[data-testid="stRadioButton"] [data-baseweb="radio"] input:checked + div {
-        border-color: #FFD80F !important;
-        background-color: #FFD80F !important;
+        border-color: var(--vc-green-700) !important;
+        background-color: var(--vc-green-700) !important;
     }
 
     div[data-testid="stRadioButton"] [aria-checked="true"] div:first-child > div,
     div[data-testid="stRadioButton"] [data-baseweb="radio"] input:checked + div > div {
-        background-color: #262730 !important;
+        background-color: #FFFFFF !important;
     }
 
     div[data-testid="stRadioButton"] [aria-checked="false"] div:first-child,
     div[data-testid="stRadioButton"] [data-baseweb="radio"] input:not(:checked) + div {
-        border-color: #FFD80F !important;
-        background-color: transparent !important;
+        border-color: var(--vc-border-strong) !important;
+        background-color: var(--vc-surface) !important;
     }
 
+    [data-testid="stCheckbox"] [aria-checked="true"] {
+        background-color: var(--vc-green-700) !important;
+        border-color: var(--vc-green-700) !important;
+    }
+
+    /* Slider */
     div[data-testid="stSlider"] [data-baseweb="slider"] div[role="slider"] ~ div,
     div[data-testid="stSlider"] [data-baseweb="slider"] div[style*="background-color"],
     div[data-testid="stSlider"] [data-baseweb="slider"] > div > div > div {
-        background: #FFD80F !important;
-        background-color: #FFD80F !important;
+        background: var(--vc-green-700) !important;
+        background-color: var(--vc-green-700) !important;
     }
 
     div[data-testid="stSlider"] [role="slider"] {
-        background-color: #FFD80F !important;
-        border-color: #FFD80F !important;
-        box-shadow: 0px 0px 6px rgba(255, 216, 15, 0.9) !important;
+        background-color: var(--vc-green-700) !important;
+        border-color: var(--vc-green-700) !important;
+        box-shadow: 0 0 0 3px rgba(47, 118, 90, 0.12) !important;
     }
 
     div[data-testid="stSlider"] [data-testid="stTickBar"] div,
-    div[data-testid="stSlider"] div,
     div[data-testid="stSlider"] p {
-        color: #FFD80F !important;
+        color: var(--vc-text-muted) !important;
     }
 
+    /* Abas internas do módulo de encerramentos */
+    [data-baseweb="tab-list"] {
+        gap: 4px !important;
+        border-bottom: 1px solid var(--vc-border) !important;
+    }
+
+    [data-baseweb="tab"] {
+        color: var(--vc-text-muted) !important;
+        font-weight: 600 !important;
+        background-color: transparent !important;
+        border-radius: 8px 8px 0 0 !important;
+    }
+
+    [data-baseweb="tab"][aria-selected="true"] {
+        color: var(--vc-green-800) !important;
+        background-color: var(--vc-green-100) !important;
+    }
+
+    [data-baseweb="tab-highlight"] {
+        background-color: var(--vc-green-700) !important;
+    }
+
+    /* Métricas como cards brancos */
+    [data-testid="stMetric"] {
+        background-color: var(--vc-surface) !important;
+        border: 1px solid var(--vc-border) !important;
+        border-top: 3px solid var(--vc-green-700) !important;
+        border-radius: 10px !important;
+        padding: 14px 16px !important;
+        box-shadow: 0 1px 2px rgba(18, 56, 45, 0.04) !important;
+    }
+
+    [data-testid="stMetricLabel"] p {
+        color: var(--vc-text-muted) !important;
+        font-weight: 600 !important;
+    }
+
+    [data-testid="stMetricValue"] {
+        color: var(--vc-green-950) !important;
+    }
+
+    /* Tabelas / editores */
+    [data-testid="stDataFrame"],
+    [data-testid="stDataEditor"] {
+        border: 1px solid var(--vc-border) !important;
+        border-radius: 10px !important;
+        overflow: hidden !important;
+        background-color: var(--vc-surface) !important;
+    }
+
+    /* Expanders */
+    [data-testid="stExpander"] {
+        background-color: var(--vc-surface) !important;
+        border: 1px solid var(--vc-border) !important;
+        border-radius: 10px !important;
+    }
+
+    [data-testid="stExpander"] summary,
+    [data-testid="stExpander"] summary p {
+        color: var(--vc-green-900) !important;
+        font-weight: 600 !important;
+    }
+
+    /* Upload de arquivos */
+    [data-testid="stFileUploaderDropzone"] {
+        background-color: var(--vc-green-050) !important;
+        border: 1px dashed #94B7A7 !important;
+        border-radius: 10px !important;
+    }
+
+    [data-testid="stFileUploaderDropzone"] p,
+    [data-testid="stFileUploaderDropzone"] small {
+        color: var(--vc-text-muted) !important;
+    }
+
+    /* Alertas mantêm semântica, mas com aparência mais discreta */
+    [data-testid="stAlert"] {
+        border-radius: 10px !important;
+        border-width: 1px !important;
+        box-shadow: none !important;
+    }
+
+    [data-testid="stAlert"] p,
+    [data-testid="stAlert"] span {
+        color: var(--vc-text) !important;
+    }
+
+    /* Código */
+    [data-testid="stCodeBlock"],
+    code {
+        border-radius: 8px !important;
+    }
+
+    /* Rodapé institucional */
     .footer-autoria {
-        background-color: #1E0A22;
-        color: #FFD80F;
+        background-color: var(--vc-green-950);
+        color: #EEF5F1;
         text-align: center;
         padding: 12px 20px;
         font-size: 12px;
-        font-weight: bold;
-        border-top: 1px solid #FFD80F;
+        font-weight: 500;
+        border-top: 1px solid #2F765A;
         border-radius: 8px;
         margin-top: 80px;
         margin-bottom: 20px;
+        box-shadow: 0 1px 2px rgba(18, 56, 45, 0.08);
     }
     </style>
+
     """,
     unsafe_allow_html=True,
 )
@@ -1624,7 +1873,7 @@ def _render_pdf_bytes(pdf_bytes, key):
     b64 = base64.b64encode(pdf_bytes).decode("ascii")
     html = (
         '<iframe src="data:application/pdf;base64,' + b64 + '" '
-        'width="100%" height="720" style="border:1px solid #FFD80F;border-radius:8px;"></iframe>'
+        'width="100%" height="720" style="border:1px solid #D9E0DD;border-radius:8px;background:#FFFFFF;"></iframe>'
     )
     components.html(html, height=740, scrolling=True)
 
@@ -2890,7 +3139,7 @@ elif aba_selecionada == "Andamento de Encerramentos":
                             type="nominal",
                             scale=alt.Scale(
                                 domain=["Pendente", "Em andamento", "Finalizado"],
-                                range=["#FFD80F", "#FF9F1C", "#2ECC71"],
+                                range=["#C58A2B", "#3C6E71", "#2F765A"],
                             ),
                             legend=alt.Legend(title="Situação"),
                         ),
@@ -3901,8 +4150,8 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
 <style>
   * { box-sizing: border-box; }
   html, body {
-    background: #341539;
-    color: #FFD80F;
+    background: #F4F6F5;
+    color: #173D32;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     margin: 0;
     padding: 16px;
@@ -3911,20 +4160,20 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
     align-items: center;
     height: 100%;
   }
-  h2 { color: #FFD80F; margin: 0 0 12px 0; }
+  h2 { color: #173D32; margin: 0 0 12px 0; }
   canvas {
-    background: #262730;
-    border: 2px solid #FFD80F;
+    background: #FFFFFF;
+    border: 2px solid #2F765A;
     border-radius: 8px;
     display: block;
     outline: none;
     cursor: pointer;
   }
-  .info { color: #FFD80F; margin-top: 12px; font-weight: bold; }
-  .status { color: #FFD80F; margin-top: 6px; font-size: 14px; text-align: center; }
+  .info { color: #173D32; margin-top: 12px; font-weight: bold; }
+  .status { color: #173D32; margin-top: 6px; font-size: 14px; text-align: center; }
   button {
-    background: #FFD80F;
-    color: #000;
+    background: #2F765A;
+    color: #FFFFFF;
     border: none;
     padding: 10px 24px;
     border-radius: 8px;
@@ -3933,7 +4182,7 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
     margin-top: 14px;
     font-size: 14px;
   }
-  button:hover { background: #7B2CBF; color: #FFF; }
+  button:hover { background: #245E48; color: #FFF; }
 </style>
 </head>
 <body>
@@ -4036,10 +4285,10 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
     }
 
     function draw() {
-      ctx.fillStyle = '#262730';
+      ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      ctx.strokeStyle = 'rgba(255, 216, 15, 0.08)';
+      ctx.strokeStyle = 'rgba(47, 118, 90, 0.08)';
       ctx.lineWidth = 1;
       for (let i = 0; i <= cols; i++) {
         ctx.beginPath();
@@ -4052,17 +4301,17 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
         ctx.stroke();
       }
 
-      ctx.fillStyle = '#7B2CBF';
+      ctx.fillStyle = '#C58A2B';
       ctx.beginPath();
       ctx.arc(food.x * box + box / 2, food.y * box + box / 2, box / 2 - 2, 0, Math.PI * 2);
       ctx.fill();
 
       snake.forEach((s, i) => {
         if (i === 0) {
-          ctx.fillStyle = '#FFD80F';
+          ctx.fillStyle = '#1F5A45';
         } else {
           const alpha = 0.55 + 0.4 * (1 - i / Math.max(1, snake.length));
-          ctx.fillStyle = 'rgba(255, 216, 15, ' + alpha + ')';
+          ctx.fillStyle = 'rgba(47, 118, 90, ' + alpha + ')';
         }
         ctx.fillRect(s.x * box + 1, s.y * box + 1, box - 2, box - 2);
       });
