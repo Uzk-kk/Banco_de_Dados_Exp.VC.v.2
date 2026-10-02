@@ -456,20 +456,6 @@ st.markdown(
         border-radius: 8px !important;
     }
 
-    /* Rodapé */
-    .footer-autoria {
-        background-color: var(--vc-green-950);
-        color: #DCE9E3;
-        text-align: center;
-        padding: 12px 20px;
-        font-size: 12px;
-        font-weight: 500;
-        border-top: 1px solid var(--vc-border);
-        border-radius: 8px;
-        margin-top: 80px;
-        margin-bottom: 20px;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
-    }
     </style>
 
     """,
@@ -489,27 +475,61 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 url_planilha = st.secrets["connections"]["gsheets"]["spreadsheet"]
 
 def ler_aba_padronizada(nome_aba, colunas_esperadas):
-    try:
-        df = conn.read(spreadsheet=url_planilha, worksheet=nome_aba, ttl=0)
-    except Exception:
+    """Lê uma aba do Google Sheets sem transformar falha temporária em "aba vazia".
+
+    O sistema faz até 3 tentativas. Quando uma leitura funciona, guardamos uma
+    cópia de último estado válido na sessão. Se a API oscilar depois, reutilizamos
+    esse último estado em vez de fazer a interface acreditar que todos os cadastros
+    desapareceram.
+    """
+    chave_erro = f"_erro_leitura_aba::{nome_aba}"
+    chave_fallback = f"_fallback_leitura_aba::{nome_aba}"
+    chave_ultimo_df = f"_ultimo_df_valido::{nome_aba}"
+    ultimo_erro = None
+    df = None
+
+    for tentativa in range(3):
+        try:
+            df = conn.read(spreadsheet=url_planilha, worksheet=nome_aba, ttl=0)
+            break
+        except Exception as exc:
+            ultimo_erro = exc
+            if tentativa < 2:
+                time.sleep(0.6 * (tentativa + 1))
+
+    if df is None:
+        st.session_state[chave_erro] = f"{type(ultimo_erro).__name__}: {ultimo_erro}"
+        ultimo_valido = st.session_state.get(chave_ultimo_df)
+        if isinstance(ultimo_valido, pd.DataFrame):
+            st.session_state[chave_fallback] = True
+            return ultimo_valido.copy()
+        st.session_state[chave_fallback] = False
         return pd.DataFrame({c: pd.Series(dtype="object") for c in colunas_esperadas})
 
-    if df is None or df.empty:
-        return pd.DataFrame({c: pd.Series(dtype="object") for c in colunas_esperadas})
+    if df.empty:
+        normalizado = pd.DataFrame({c: pd.Series(dtype="object") for c in colunas_esperadas})
+    else:
+        df = df.loc[:, ~df.columns.duplicated()].copy()
+        for col in colunas_esperadas:
+            if col not in df.columns:
+                df[col] = ""
+        normalizado = df[colunas_esperadas].copy()
+        for col in normalizado.columns:
+            normalizado[col] = normalizado[col].astype("object")
+            normalizado[col] = normalizado[col].where(pd.notna(normalizado[col]), "")
 
-    df = df.loc[:, ~df.columns.duplicated()].copy()
+    st.session_state[chave_ultimo_df] = normalizado.copy()
+    st.session_state.pop(chave_erro, None)
+    st.session_state[chave_fallback] = False
+    return normalizado
 
-    for col in colunas_esperadas:
-        if col not in df.columns:
-            df[col] = ""
 
-    df = df[colunas_esperadas].copy()
-
-    for col in df.columns:
-        df[col] = df[col].astype("object")
-        df[col] = df[col].where(pd.notna(df[col]), "")
-
-    return df
+def _atualizar_ultimo_df_valido(nome_aba, df):
+    """Atualiza o fallback local depois de uma escrita bem-sucedida no Sheets."""
+    if isinstance(df, pd.DataFrame):
+        st.session_state[f"_ultimo_df_valido::{nome_aba}"] = df.copy()
+        st.session_state.pop(f"_erro_leitura_aba::{nome_aba}", None)
+        st.session_state[f"_fallback_leitura_aba::{nome_aba}"] = False
 
 def carregar_usuarios():
     usuarios = dict(USUARIOS_SECRETS)
@@ -1099,7 +1119,10 @@ def _opcao_documento_permitida(acao):
     return bool(PERMISSOES_DOCUMENTOS.get(nivel_atual, {}).get(acao, False))
 
 
+@st.cache_data(ttl=15, show_spinner=False)
 def _obter_df_encerramentos():
+    # Encerramentos muda pouco e é consultado muitas vezes no mesmo fluxo.
+    # Um cache curto reduz chamadas redundantes à API e evita oscilações após reruns.
     return ler_aba_padronizada("Encerramentos", COLUNAS_ENCERRAMENTOS)
 
 
@@ -1295,11 +1318,14 @@ def processo_pronto_para_concluir(row):
 
 def _salvar_df_encerramentos(df):
     df = df[COLUNAS_ENCERRAMENTOS]
+    df_saida = _preparar_df_para_sheets(df)
     conn.update(
         spreadsheet=url_planilha,
         worksheet="Encerramentos",
-        data=_preparar_df_para_sheets(df),
+        data=df_saida,
     )
+    _atualizar_ultimo_df_valido("Encerramentos", df_saida)
+    _obter_df_encerramentos.clear()
 
 
 def salvar_alteracoes_encerramento(uuid_processo, alteracoes, detalhe_acao="Atualização do acompanhamento"):
@@ -1723,19 +1749,24 @@ def excluir_pdf_drive(service, file_id):
     service.files().delete(fileId=file_id).execute()
 
 
+@st.cache_data(ttl=8, show_spinner=False)
 def _obter_documentos_encerramento():
+    # Cache curto: a aba é lida várias vezes durante upload/exclusão/rerun.
     return ler_aba_padronizada("Documentos Encerramentos", COLUNAS_DOCUMENTOS_ENC)
 
 
-def _documentos_ativos_processo(uuid_processo):
-    df = _obter_documentos_encerramento()
-    if df.empty:
-        return df
+def _documentos_ativos_de_df(df, uuid_processo):
+    if df is None or df.empty:
+        return pd.DataFrame(columns=COLUNAS_DOCUMENTOS_ENC)
     mask = (
         (df["UUID Processo"].astype(str).str.strip() == str(uuid_processo).strip())
         & (df["Estado Documento"].astype(str).str.strip().str.lower() != "excluído")
     )
     return df[mask].copy().reset_index(drop=True)
+
+
+def _documentos_ativos_processo(uuid_processo):
+    return _documentos_ativos_de_df(_obter_documentos_encerramento(), uuid_processo)
 
 
 def salvar_lote_documentos(processo, categoria, descricao, arquivos):
@@ -1746,8 +1777,9 @@ def salvar_lote_documentos(processo, categoria, descricao, arquivos):
     if not drive_disponivel():
         return [], [{"nome": "—", "erro": "Google Drive ainda não está configurado no st.secrets."}]
 
+    # Uma única leitura da aba de documentos por operação.
     df_docs = _obter_documentos_encerramento()
-    ativos = _documentos_ativos_processo(processo.get("UUID Processo"))
+    ativos = _documentos_ativos_de_df(df_docs, processo.get("UUID Processo"))
     hashes = set(ativos["SHA-256"].astype(str).str.strip().tolist()) if not ativos.empty else set()
 
     try:
@@ -1799,11 +1831,14 @@ def salvar_lote_documentos(processo, categoria, descricao, arquivos):
         try:
             df_docs = pd.concat([df_docs, pd.DataFrame(aprovados)], ignore_index=True)
             df_docs = df_docs[COLUNAS_DOCUMENTOS_ENC]
+            df_docs_saida = _preparar_df_para_sheets(df_docs)
             conn.update(
                 spreadsheet=url_planilha,
                 worksheet="Documentos Encerramentos",
-                data=_preparar_df_para_sheets(df_docs),
+                data=df_docs_saida,
             )
+            _atualizar_ultimo_df_valido("Documentos Encerramentos", df_docs_saida)
+            _obter_documentos_encerramento.clear()
         except Exception as exc:
             # Rollback best-effort para não deixar arquivos órfãos no Drive.
             for file_id in drive_ids_criados:
@@ -1837,7 +1872,7 @@ def salvar_lote_documentos(processo, categoria, descricao, arquivos):
     return aprovados, rejeitados
 
 
-def excluir_documento_encerramento(uuid_documento):
+def excluir_documento_encerramento(uuid_documento, processo_atual=None):
     if not _opcao_documento_permitida("excluir"):
         return False, "Seu perfil não possui permissão para excluir documentos."
     if not drive_disponivel():
@@ -1868,19 +1903,26 @@ def excluir_documento_encerramento(uuid_documento):
     df_docs.at[idx, "Data da exclusão"] = agora
 
     try:
+        df_docs_saida = _preparar_df_para_sheets(df_docs[COLUNAS_DOCUMENTOS_ENC])
         conn.update(
             spreadsheet=url_planilha,
             worksheet="Documentos Encerramentos",
-            data=_preparar_df_para_sheets(df_docs[COLUNAS_DOCUMENTOS_ENC]),
+            data=df_docs_saida,
         )
+        _atualizar_ultimo_df_valido("Documentos Encerramentos", df_docs_saida)
+        _obter_documentos_encerramento.clear()
     except Exception as exc:
         return False, (
             "O arquivo foi removido do Drive, mas houve falha ao atualizar o registro no Sheets: "
             f"{exc}"
         )
 
-    df_enc = _obter_df_encerramentos()
-    _, processo = _obter_processo_por_uuid(doc.get("UUID Processo"), df_enc)
+    # O processo já está carregado na tela. Reutilizá-lo evita uma nova leitura
+    # desnecessária da aba Encerramentos logo após uma exclusão no Drive/Sheets.
+    processo = processo_atual
+    if processo is None:
+        df_enc = _obter_df_encerramentos()
+        _, processo = _obter_processo_por_uuid(doc.get("UUID Processo"), df_enc)
     if processo is not None:
         registrar_historico_encerramento(processo, [{
             "tipo_acao": "Documento excluído",
@@ -2019,9 +2061,16 @@ def render_documentos_processo(processo):
                 c1, c2 = st.columns(2)
                 with c1:
                     if st.button("Confirmar exclusão", key=f"confirm_del_doc_{doc['UUID Documento']}"):
-                        ok, msg = excluir_documento_encerramento(doc["UUID Documento"])
+                        ok, msg = excluir_documento_encerramento(
+                            doc["UUID Documento"],
+                            processo_atual=processo,
+                        )
                         st.session_state.pop("doc_confirmar_exclusao", None)
                         if ok:
+                            # Remove qualquer byte/visualização já carregado do documento excluído.
+                            st.session_state.pop(f"doc_bytes_{doc['UUID Documento']}", None)
+                            if st.session_state.get("doc_visualizar_uuid") == doc["UUID Documento"]:
+                                st.session_state.pop("doc_visualizar_uuid", None)
                             st.success(msg)
                             st.rerun()
                         else:
@@ -3104,6 +3153,20 @@ elif aba_selecionada == "Andamento de Encerramentos":
     )
 
     df_enc = _obter_df_encerramentos()
+    erro_leitura_enc = st.session_state.get("_erro_leitura_aba::Encerramentos")
+
+    if erro_leitura_enc:
+        st.error(
+            "Não foi possível carregar a aba 'Encerramentos' do Google Sheets neste momento. "
+            "O sistema não vai tratar essa falha como se não existissem encerramentos."
+        )
+        st.caption("Tente novamente. Se o problema persistir, abra os detalhes técnicos abaixo.")
+        if st.button("↻ Tentar carregar novamente", key="enc_retry_leitura"): 
+            st.session_state.pop("_erro_leitura_aba::Encerramentos", None)
+            st.rerun()
+        with st.expander("Detalhes técnicos da leitura"):
+            st.code(erro_leitura_enc)
+        st.stop()
 
     if submenu_enc == "Visão Geral":
         st.subheader("Visão Geral")
@@ -3670,8 +3733,22 @@ elif aba_selecionada == "Andamento de Encerramentos":
         if not _opcao_documento_permitida("visualizar"):
             st.error("Seu perfil não possui permissão para visualizar documentos.")
         elif df_enc.empty:
-            st.info("Cadastre um encerramento antes de anexar documentos.")
+            erro_enc = st.session_state.get("_erro_leitura_aba::Encerramentos")
+            if erro_enc:
+                st.error(
+                    "Não foi possível carregar os encerramentos agora. Os cadastros não foram apagados; "
+                    "houve uma falha temporária de leitura do Google Sheets. Tente novamente em alguns segundos."
+                )
+                with st.expander("Detalhes técnicos"):
+                    st.code(erro_enc)
+            else:
+                st.info("Cadastre um encerramento antes de anexar documentos.")
         else:
+            if st.session_state.get("_fallback_leitura_aba::Encerramentos"):
+                st.warning(
+                    "A conexão com o Google Sheets oscilou e esta tela está usando o último cadastro carregado com sucesso. "
+                    "Nenhum registro foi perdido."
+                )
             if not drive_disponivel():
                 st.warning(
                     "A área documental está pronta, mas o Google Drive ainda não foi configurado. "
@@ -4370,3 +4447,4 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
 """
 
     components.html(SNAKE_HTML, height=620, scrolling=False)
+
