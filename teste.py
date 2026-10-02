@@ -51,25 +51,27 @@ st.markdown(
     """
     <style>
     :root {
-        --vc-green-950: #12382D;
-        --vc-green-900: #173D32;
+        --vc-green-950: #0D2B22;
+        --vc-green-900: #12382D;
+        --vc-green-850: #173D32;
         --vc-green-800: #1F5A45;
         --vc-green-700: #2F765A;
         --vc-green-600: #3F896B;
-        --vc-green-100: #E4EFEA;
-        --vc-green-050: #F0F6F3;
-        --vc-bg: #F4F6F5;
-        --vc-surface: #FFFFFF;
-        --vc-text: #202825;
-        --vc-text-muted: #66716C;
-        --vc-border: #D9E0DD;
-        --vc-border-strong: #C8D3CE;
-        --vc-warning: #C58A2B;
-        --vc-info: #3C6E71;
-        --vc-danger: #B54747;
+        --vc-green-500: #4E8B70;
+        --vc-bg: #12382D;
+        --vc-surface: #173D32;
+        --vc-surface-alt: #193F34;
+        --vc-surface-raised: #1B4639;
+        --vc-text: #F2F6F4;
+        --vc-text-muted: #B8C7C0;
+        --vc-border: #315E4D;
+        --vc-border-soft: #244D3E;
+        --vc-warning: #C99A45;
+        --vc-info: #4F8A8B;
+        --vc-danger: #C65B5B;
     }
 
-    /* Base clara e confortável para uso prolongado no escritório */
+    /* Base escura e sóbria: verde institucional sem brilho excessivo */
     html, body,
     .stApp,
     [data-testid="stAppViewContainer"],
@@ -79,14 +81,19 @@ st.markdown(
     }
 
     [data-testid="stHeader"] {
-        background-color: rgba(244, 246, 245, 0.96) !important;
-        border-bottom: 1px solid rgba(18, 56, 45, 0.06) !important;
+        background-color: rgba(18, 56, 45, 0.97) !important;
+        border-bottom: 1px solid var(--vc-border-soft) !important;
     }
 
-    /* Sidebar institucional: verde escuro, sem saturação excessiva */
+    [data-testid="stToolbar"],
+    [data-testid="stDecoration"] {
+        background-color: transparent !important;
+    }
+
+    /* Sidebar propositalmente um tom mais profundo que o conteúdo */
     [data-testid="stSidebar"] {
         background-color: var(--vc-green-950) !important;
-        border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+        border-right: 1px solid var(--vc-border-soft) !important;
     }
 
     [data-testid="stSidebar"] h1,
@@ -97,23 +104,23 @@ st.markdown(
     [data-testid="stSidebar"] span,
     [data-testid="stSidebar"] small,
     [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
-        color: #F7FAF8 !important;
+        color: var(--vc-text) !important;
     }
 
     [data-testid="stSidebar"] hr {
-        border-color: rgba(255, 255, 255, 0.12) !important;
+        border-color: var(--vc-border-soft) !important;
     }
 
-    /* Hierarquia tipográfica menos agressiva */
+    /* Tipografia */
     [data-testid="stMainBlockContainer"] h1 {
-        color: var(--vc-green-950) !important;
+        color: #FFFFFF !important;
         font-weight: 700 !important;
         letter-spacing: -0.02em !important;
     }
 
     [data-testid="stMainBlockContainer"] h2,
     [data-testid="stMainBlockContainer"] h3 {
-        color: var(--vc-green-800) !important;
+        color: #DDEAE4 !important;
         font-weight: 650 !important;
     }
 
@@ -136,29 +143,30 @@ st.markdown(
     }
 
     a {
-        color: var(--vc-green-700) !important;
+        color: #8EC5AB !important;
     }
 
     hr {
-        border-color: var(--vc-border) !important;
+        border-color: var(--vc-border-soft) !important;
     }
 
-    /* Formulários viram superfícies brancas discretas */
+    /* Formulários e superfícies */
     [data-testid="stForm"] {
         background-color: var(--vc-surface) !important;
         border: 1px solid var(--vc-border) !important;
         border-radius: 12px !important;
         padding: 18px 20px 14px 20px !important;
-        box-shadow: 0 1px 2px rgba(18, 56, 45, 0.04) !important;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.10) !important;
     }
 
-    /* Inputs */
+    /* Inputs, textareas e selects */
     div[data-baseweb="input"] > div,
     div[data-baseweb="textarea"] > div,
     div[data-baseweb="select"] > div,
-    [data-testid="stDateInput"] div[data-baseweb="input"] > div {
+    [data-testid="stDateInput"] div[data-baseweb="input"] > div,
+    [data-testid="stNumberInput"] div[data-baseweb="input"] > div {
         background-color: var(--vc-surface) !important;
-        border-color: var(--vc-border-strong) !important;
+        border-color: var(--vc-border) !important;
         border-radius: 8px !important;
         box-shadow: none !important;
     }
@@ -166,8 +174,8 @@ st.markdown(
     div[data-baseweb="input"] > div:focus-within,
     div[data-baseweb="textarea"] > div:focus-within,
     div[data-baseweb="select"] > div:focus-within {
-        border-color: var(--vc-green-700) !important;
-        box-shadow: 0 0 0 2px rgba(47, 118, 90, 0.12) !important;
+        border-color: var(--vc-green-500) !important;
+        box-shadow: 0 0 0 2px rgba(78, 139, 112, 0.18) !important;
     }
 
     div[data-baseweb="input"] input,
@@ -180,10 +188,10 @@ st.markdown(
 
     div[data-baseweb="input"] input::placeholder,
     div[data-baseweb="textarea"] textarea::placeholder {
-        color: #8A9691 !important;
+        color: #90A49B !important;
     }
 
-    /* Dropdowns e calendário */
+    /* Dropdowns, menus e calendário */
     [data-baseweb="popover"],
     [data-baseweb="menu"],
     [role="listbox"],
@@ -198,10 +206,10 @@ st.markdown(
 
     [role="option"]:hover,
     [aria-selected="true"][role="option"] {
-        background-color: var(--vc-green-100) !important;
+        background-color: var(--vc-surface-raised) !important;
     }
 
-    /* Botões principais */
+    /* Botões: mantém o verde aprovado */
     div.stButton > button,
     div[data-testid="stFormSubmitButton"] > button,
     [data-testid="stDownloadButton"] > button {
@@ -211,7 +219,7 @@ st.markdown(
         border: 1px solid var(--vc-green-700) !important;
         padding: 9px 20px !important;
         font-weight: 600 !important;
-        box-shadow: 0 1px 2px rgba(18, 56, 45, 0.10) !important;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16) !important;
         transition: background-color 120ms ease, border-color 120ms ease, transform 120ms ease !important;
     }
 
@@ -233,7 +241,7 @@ st.markdown(
     div[data-testid="stFormSubmitButton"] > button:hover,
     [data-testid="stDownloadButton"] > button:hover {
         background-color: #245E48 !important;
-        border-color: #245E48 !important;
+        border-color: #3F896B !important;
         color: #FFFFFF !important;
         transform: translateY(-1px) !important;
     }
@@ -287,10 +295,6 @@ st.markdown(
         font-weight: 500 !important;
     }
 
-    [data-testid="stSidebar"] div[data-testid="stRadioButton"] label p {
-        color: #F7FAF8 !important;
-    }
-
     div[data-testid="stRadioButton"] [aria-checked="true"] div:first-child,
     div[data-testid="stRadioButton"] [data-baseweb="radio"] input:checked + div {
         border-color: var(--vc-green-700) !important;
@@ -304,7 +308,7 @@ st.markdown(
 
     div[data-testid="stRadioButton"] [aria-checked="false"] div:first-child,
     div[data-testid="stRadioButton"] [data-baseweb="radio"] input:not(:checked) + div {
-        border-color: var(--vc-border-strong) !important;
+        border-color: var(--vc-border) !important;
         background-color: var(--vc-surface) !important;
     }
 
@@ -324,7 +328,7 @@ st.markdown(
     div[data-testid="stSlider"] [role="slider"] {
         background-color: var(--vc-green-700) !important;
         border-color: var(--vc-green-700) !important;
-        box-shadow: 0 0 0 3px rgba(47, 118, 90, 0.12) !important;
+        box-shadow: 0 0 0 3px rgba(47, 118, 90, 0.18) !important;
     }
 
     div[data-testid="stSlider"] [data-testid="stTickBar"] div,
@@ -332,10 +336,10 @@ st.markdown(
         color: var(--vc-text-muted) !important;
     }
 
-    /* Abas internas do módulo de encerramentos */
+    /* Tabs do módulo */
     [data-baseweb="tab-list"] {
         gap: 4px !important;
-        border-bottom: 1px solid var(--vc-border) !important;
+        border-bottom: 1px solid var(--vc-border-soft) !important;
     }
 
     [data-baseweb="tab"] {
@@ -346,22 +350,22 @@ st.markdown(
     }
 
     [data-baseweb="tab"][aria-selected="true"] {
-        color: var(--vc-green-800) !important;
-        background-color: var(--vc-green-100) !important;
+        color: #FFFFFF !important;
+        background-color: var(--vc-surface-raised) !important;
     }
 
     [data-baseweb="tab-highlight"] {
-        background-color: var(--vc-green-700) !important;
+        background-color: var(--vc-green-600) !important;
     }
 
-    /* Métricas como cards brancos */
+    /* Métricas: cards verdes escuros, sem blocos brancos */
     [data-testid="stMetric"] {
         background-color: var(--vc-surface) !important;
         border: 1px solid var(--vc-border) !important;
         border-top: 3px solid var(--vc-green-700) !important;
         border-radius: 10px !important;
         padding: 14px 16px !important;
-        box-shadow: 0 1px 2px rgba(18, 56, 45, 0.04) !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.10) !important;
     }
 
     [data-testid="stMetricLabel"] p {
@@ -370,16 +374,43 @@ st.markdown(
     }
 
     [data-testid="stMetricValue"] {
-        color: var(--vc-green-950) !important;
+        color: #FFFFFF !important;
     }
 
-    /* Tabelas / editores */
+    /* DataFrame/DataEditor: o tema dark em .streamlit/config.toml colore o grid interno.
+       Aqui controlamos contêiner, borda, toolbar e áreas externas do componente. */
     [data-testid="stDataFrame"],
     [data-testid="stDataEditor"] {
+        background-color: var(--vc-surface) !important;
         border: 1px solid var(--vc-border) !important;
         border-radius: 10px !important;
         overflow: hidden !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
+    }
+
+    [data-testid="stDataFrame"] [data-testid="stElementToolbar"],
+    [data-testid="stDataEditor"] [data-testid="stElementToolbar"] {
         background-color: var(--vc-surface) !important;
+    }
+
+    /* Tabelas HTML simples */
+    [data-testid="stTable"] table,
+    [data-testid="stTable"] thead,
+    [data-testid="stTable"] tbody,
+    [data-testid="stTable"] tr,
+    [data-testid="stTable"] th,
+    [data-testid="stTable"] td {
+        border-color: var(--vc-border) !important;
+    }
+
+    [data-testid="stTable"] th {
+        background-color: var(--vc-green-800) !important;
+        color: #FFFFFF !important;
+    }
+
+    [data-testid="stTable"] td {
+        background-color: var(--vc-surface) !important;
+        color: var(--vc-text) !important;
     }
 
     /* Expanders */
@@ -391,14 +422,14 @@ st.markdown(
 
     [data-testid="stExpander"] summary,
     [data-testid="stExpander"] summary p {
-        color: var(--vc-green-900) !important;
+        color: var(--vc-text) !important;
         font-weight: 600 !important;
     }
 
-    /* Upload de arquivos */
+    /* Upload */
     [data-testid="stFileUploaderDropzone"] {
-        background-color: var(--vc-green-050) !important;
-        border: 1px dashed #94B7A7 !important;
+        background-color: var(--vc-surface-alt) !important;
+        border: 1px dashed var(--vc-green-500) !important;
         border-radius: 10px !important;
     }
 
@@ -407,7 +438,7 @@ st.markdown(
         color: var(--vc-text-muted) !important;
     }
 
-    /* Alertas mantêm semântica, mas com aparência mais discreta */
+    /* Alertas: preserva cor semântica do Streamlit e garante legibilidade */
     [data-testid="stAlert"] {
         border-radius: 10px !important;
         border-width: 1px !important;
@@ -425,19 +456,19 @@ st.markdown(
         border-radius: 8px !important;
     }
 
-    /* Rodapé institucional */
+    /* Rodapé */
     .footer-autoria {
         background-color: var(--vc-green-950);
-        color: #EEF5F1;
+        color: #DCE9E3;
         text-align: center;
         padding: 12px 20px;
         font-size: 12px;
         font-weight: 500;
-        border-top: 1px solid #2F765A;
+        border-top: 1px solid var(--vc-border);
         border-radius: 8px;
         margin-top: 80px;
         margin-bottom: 20px;
-        box-shadow: 0 1px 2px rgba(18, 56, 45, 0.08);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
     }
     </style>
 
@@ -1873,7 +1904,7 @@ def _render_pdf_bytes(pdf_bytes, key):
     b64 = base64.b64encode(pdf_bytes).decode("ascii")
     html = (
         '<iframe src="data:application/pdf;base64,' + b64 + '" '
-        'width="100%" height="720" style="border:1px solid #D9E0DD;border-radius:8px;background:#FFFFFF;"></iframe>'
+        'width="100%" height="720" style="border:1px solid #315E4D;border-radius:8px;background:#173D32;"></iframe>'
     )
     components.html(html, height=740, scrolling=True)
 
@@ -4150,8 +4181,8 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
 <style>
   * { box-sizing: border-box; }
   html, body {
-    background: #F4F6F5;
-    color: #173D32;
+    background: #12382D;
+    color: #F2F6F4;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     margin: 0;
     padding: 16px;
@@ -4160,17 +4191,17 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
     align-items: center;
     height: 100%;
   }
-  h2 { color: #173D32; margin: 0 0 12px 0; }
+  h2 { color: #F2F6F4; margin: 0 0 12px 0; }
   canvas {
-    background: #FFFFFF;
-    border: 2px solid #2F765A;
+    background: #173D32;
+    border: 2px solid #315E4D;
     border-radius: 8px;
     display: block;
     outline: none;
     cursor: pointer;
   }
-  .info { color: #173D32; margin-top: 12px; font-weight: bold; }
-  .status { color: #173D32; margin-top: 6px; font-size: 14px; text-align: center; }
+  .info { color: #DDEAE4; margin-top: 12px; font-weight: bold; }
+  .status { color: #B8C7C0; margin-top: 6px; font-size: 14px; text-align: center; }
   button {
     background: #2F765A;
     color: #FFFFFF;
@@ -4285,10 +4316,10 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
     }
 
     function draw() {
-      ctx.fillStyle = '#FFFFFF';
+      ctx.fillStyle = '#173D32';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      ctx.strokeStyle = 'rgba(47, 118, 90, 0.08)';
+      ctx.strokeStyle = 'rgba(184, 199, 192, 0.08)';
       ctx.lineWidth = 1;
       for (let i = 0; i <= cols; i++) {
         ctx.beginPath();
@@ -4308,7 +4339,7 @@ elif aba_selecionada == "🐍 Sala Secreta: Jogo da Cobrinha":
 
       snake.forEach((s, i) => {
         if (i === 0) {
-          ctx.fillStyle = '#1F5A45';
+          ctx.fillStyle = '#4E8B70';
         } else {
           const alpha = 0.55 + 0.4 * (1 - i / Math.max(1, snake.length));
           ctx.fillStyle = 'rgba(47, 118, 90, ' + alpha + ')';
